@@ -5,8 +5,7 @@ import os
 from flask import Flask, request, send_from_directory
 from flask_cors import CORS
 
-from api.config import close_db, get_db
-from api.auth import auth_bp, create_tables
+from config import close_db, get_dbfrom api.auth import auth_bp, create_tables
 from api.words import words_bp
 from api.practice import practice_bp
 from api.quiz import quiz_bp
