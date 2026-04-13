@@ -1,0 +1,14 @@
+{
+  "name": "Lexlo — Vocabulario",
+  "short_name": "Lexlo",
+  "description": "Aprendé vocabulario en inglés con repaso inteligente SRS",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080c10",
+  "theme_color": "#080c10",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "logo.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "logo.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
