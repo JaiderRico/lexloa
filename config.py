@@ -1,15 +1,16 @@
 """
-config.py — Configuración + helpers globales
+config.py — Configuración + helpers globales (PostgreSQL)
 """
 import os
 import json
 import secrets
 import functools
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
-import pymysql
-import pymysql.cursors
+import psycopg2
+import psycopg2.extras
 from flask import request, jsonify, g
 from dotenv import load_dotenv
 
@@ -28,7 +29,7 @@ DB_HOST   = env("DB_HOST")
 DB_NAME   = env("DB_NAME")
 DB_USER   = env("DB_USER")
 DB_PASS   = env("DB_PASS")
-DB_PORT   = int(env("DB_PORT", "3306"))
+DB_PORT   = int(env("DB_PORT", "5432"))
 
 GROQ_KEY   = env("GROQ_API_KEY")
 GROQ_MODEL = env("GROQ_MODEL", "llama-3.3-70b-versatile")
@@ -45,16 +46,15 @@ NOTIFY_SECRET = env("NOTIFY_SECRET")
 # ── DB ───────────────────────────────────────────────────────────────────────
 def get_db():
     if "db" not in g:
-        g.db = pymysql.connect(
+        g.db = psycopg2.connect(
             host=DB_HOST,
             port=DB_PORT,
             user=DB_USER,
             password=DB_PASS,
-            database=DB_NAME,
-            charset="utf8mb4",
-            cursorclass=pymysql.cursors.DictCursor,
-            autocommit=True,
+            dbname=DB_NAME,
+            cursor_factory=psycopg2.extras.RealDictCursor,
         )
+        g.db.autocommit = True
     return g.db
 
 
@@ -66,30 +66,33 @@ def close_db(e=None):
 
 def db_exec(sql: str, params=None):
     conn = get_db()
-    with conn.cursor() as cur:
-        cur.execute(sql, params or ())
-        return cur
+    cur = conn.cursor()
+    cur.execute(sql, params or ())
+    return cur
 
 
 def db_fetchall(sql: str, params=None):
     conn = get_db()
     with conn.cursor() as cur:
         cur.execute(sql, params or ())
-        return cur.fetchall()
+        return [dict(r) for r in cur.fetchall()]
 
 
 def db_fetchone(sql: str, params=None):
     conn = get_db()
     with conn.cursor() as cur:
         cur.execute(sql, params or ())
-        return cur.fetchone()
+        row = cur.fetchone()
+        return dict(row) if row else None
 
 
 def db_insert(sql: str, params=None):
+    """Ejecuta INSERT y retorna el id generado (usa RETURNING id)."""
     conn = get_db()
     with conn.cursor() as cur:
         cur.execute(sql, params or ())
-        return cur.lastrowid
+        row = cur.fetchone()
+        return dict(row)["id"] if row else None
 
 
 def db_update(sql: str, params=None):
@@ -124,9 +127,7 @@ def body() -> dict:
 
 
 # ── Autenticación ────────────────────────────────────────────────────────────
-def get_uid() -> int:
-    """Obtiene el user_id del request actual. Lanza 401 si no autenticado."""
-    # Header X-Session-Token
+def get_uid() -> int | None:
     token = (
         request.args.get("_t", "")
         or request.headers.get("X-Session-Token", "")
@@ -157,7 +158,7 @@ def require_auth(f):
 def make_token(uid: int) -> str:
     token = secrets.token_hex(32)
     expires = (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
-    db_insert(
+    db_exec(
         "INSERT INTO session_tokens (user_id, token, expires_at) VALUES (%s, %s, %s)",
         (uid, token, expires),
     )
@@ -166,7 +167,6 @@ def make_token(uid: int) -> str:
 
 # ── Groq helpers ─────────────────────────────────────────────────────────────
 import requests as _requests
-import re
 
 
 def groq_call(prompt: str, max_tokens: int = 120) -> str | None:

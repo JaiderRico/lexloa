@@ -1,11 +1,11 @@
 """
-auth.py — Registro · Login · Logout · Me
+auth.py — Registro · Login · Logout · Me (PostgreSQL)
 """
-import hashlib
+import re
 from flask import Blueprint, request, g
 from config import (
     ok, err, body, db_exec, db_fetchone, db_insert,
-    make_token, get_uid
+    make_token, get_uid, get_db
 )
 import bcrypt
 
@@ -15,126 +15,106 @@ auth_bp = Blueprint("auth", __name__)
 def create_tables():
     tables = [
         """CREATE TABLE IF NOT EXISTS users (
-            id         INT AUTO_INCREMENT PRIMARY KEY,
+            id         SERIAL PRIMARY KEY,
             username   VARCHAR(30)  NOT NULL UNIQUE,
-            email      VARCHAR(120) NULL,
+            email      VARCHAR(120),
             password   VARCHAR(255) NOT NULL,
-            created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP    NOT NULL DEFAULT NOW()
         )""",
         """CREATE TABLE IF NOT EXISTS session_tokens (
-            id         INT AUTO_INCREMENT PRIMARY KEY,
-            user_id    INT          NOT NULL,
-            token      VARCHAR(64)  NOT NULL UNIQUE,
-            expires_at DATETIME     NOT NULL,
-            created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            id         SERIAL PRIMARY KEY,
+            user_id    INT         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token      VARCHAR(64) NOT NULL UNIQUE,
+            expires_at TIMESTAMP   NOT NULL,
+            created_at TIMESTAMP   NOT NULL DEFAULT NOW()
         )""",
         """CREATE TABLE IF NOT EXISTS word_groups (
-            id               INT AUTO_INCREMENT PRIMARY KEY,
-            user_id          INT          NOT NULL,
+            id               SERIAL PRIMARY KEY,
+            user_id          INT          NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             spanish          VARCHAR(120) NOT NULL,
-            example_sentence TEXT         NULL,
+            example_sentence TEXT,
             category         VARCHAR(80)  NOT NULL DEFAULT '',
-            created_at       DATE         NOT NULL DEFAULT (CURRENT_DATE),
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            created_at       DATE         NOT NULL DEFAULT CURRENT_DATE
         )""",
         """CREATE TABLE IF NOT EXISTS words (
-            id       INT AUTO_INCREMENT PRIMARY KEY,
-            group_id INT          NOT NULL,
+            id       SERIAL PRIMARY KEY,
+            group_id INT          NOT NULL REFERENCES word_groups(id) ON DELETE CASCADE,
             english  VARCHAR(120) NOT NULL,
-            is_hard  TINYINT(1)   NOT NULL DEFAULT 0,
-            FOREIGN KEY (group_id) REFERENCES word_groups(id) ON DELETE CASCADE
+            is_hard  BOOLEAN      NOT NULL DEFAULT FALSE
         )""",
         """CREATE TABLE IF NOT EXISTS practice_log (
-            id            INT AUTO_INCREMENT PRIMARY KEY,
-            user_id       INT          NOT NULL,
-            group_id      INT          NOT NULL,
-            direction     VARCHAR(10)  NOT NULL,
-            practice_mode VARCHAR(20)  NULL,
-            answer        TEXT         NOT NULL,
-            correct       TINYINT(1)   NOT NULL DEFAULT 0,
-            feedback      TEXT         NULL,
-            created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id)  REFERENCES users(id)       ON DELETE CASCADE,
-            FOREIGN KEY (group_id) REFERENCES word_groups(id) ON DELETE CASCADE
+            id            SERIAL PRIMARY KEY,
+            user_id       INT         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            group_id      INT         NOT NULL REFERENCES word_groups(id) ON DELETE CASCADE,
+            direction     VARCHAR(10) NOT NULL,
+            practice_mode VARCHAR(20),
+            answer        TEXT        NOT NULL,
+            correct       BOOLEAN     NOT NULL DEFAULT FALSE,
+            feedback      TEXT,
+            created_at    TIMESTAMP   NOT NULL DEFAULT NOW()
         )""",
         """CREATE TABLE IF NOT EXISTS weekly_tests (
-            id         INT AUTO_INCREMENT PRIMARY KEY,
-            user_id    INT  NOT NULL,
+            id         SERIAL PRIMARY KEY,
+            user_id    INT  NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             week_start DATE NOT NULL,
             score      INT  NOT NULL DEFAULT 0,
             total      INT  NOT NULL DEFAULT 0,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )""",
         """CREATE TABLE IF NOT EXISTS word_srs (
-            id          INT AUTO_INCREMENT PRIMARY KEY,
-            user_id     INT   NOT NULL,
-            group_id    INT   NOT NULL,
+            id          SERIAL PRIMARY KEY,
+            user_id     INT   NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            group_id    INT   NOT NULL REFERENCES word_groups(id) ON DELETE CASCADE,
             easiness    FLOAT NOT NULL DEFAULT 2.5,
-            `interval`  INT   NOT NULL DEFAULT 1,
+            interval_days INT NOT NULL DEFAULT 1,
             repetitions INT   NOT NULL DEFAULT 0,
             next_review DATE  NOT NULL DEFAULT '2000-01-01',
-            last_review DATE  NULL,
-            last_quality INT  NULL,
-            mastered    TINYINT(1) NOT NULL DEFAULT 0,
-            updated_at  DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY uq_user_group (user_id, group_id),
-            FOREIGN KEY (user_id)  REFERENCES users(id)       ON DELETE CASCADE,
-            FOREIGN KEY (group_id) REFERENCES word_groups(id) ON DELETE CASCADE
+            last_review DATE,
+            last_quality INT,
+            mastered    BOOLEAN NOT NULL DEFAULT FALSE,
+            updated_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE (user_id, group_id)
         )""",
         """CREATE TABLE IF NOT EXISTS session_history (
-            id            INT AUTO_INCREMENT PRIMARY KEY,
-            user_id       INT         NOT NULL,
+            id            SERIAL PRIMARY KEY,
+            user_id       INT         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             session_date  DATE        NOT NULL,
             practice_mode VARCHAR(20) NOT NULL DEFAULT 'type',
             total         INT         NOT NULL DEFAULT 0,
             correct       INT         NOT NULL DEFAULT 0,
-            duration_secs INT         NULL,
-            created_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            duration_secs INT,
+            created_at    TIMESTAMP   NOT NULL DEFAULT NOW()
         )""",
         """CREATE TABLE IF NOT EXISTS notification_prefs (
-            id          INT AUTO_INCREMENT PRIMARY KEY,
-            user_id     INT          NOT NULL UNIQUE,
+            id          SERIAL PRIMARY KEY,
+            user_id     INT          NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
             email       VARCHAR(120) NOT NULL DEFAULT '',
-            enabled     TINYINT(1)   NOT NULL DEFAULT 0,
+            enabled     BOOLEAN      NOT NULL DEFAULT FALSE,
             notify_hour INT          NOT NULL DEFAULT 8,
-            last_sent   DATE         NULL,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            last_sent   DATE
         )""",
         """CREATE TABLE IF NOT EXISTS shared_packs (
-            id           INT AUTO_INCREMENT PRIMARY KEY,
+            id           SERIAL PRIMARY KEY,
             token        VARCHAR(32)  NOT NULL UNIQUE,
             user_id      INT          NOT NULL,
             label        VARCHAR(120) NOT NULL DEFAULT '',
             category     VARCHAR(80)  NOT NULL DEFAULT '',
-            is_public    TINYINT(1)   NOT NULL DEFAULT 0,
-            words_json   MEDIUMTEXT   NOT NULL,
+            is_public    BOOLEAN      NOT NULL DEFAULT FALSE,
+            words_json   TEXT         NOT NULL,
             word_count   INT          NOT NULL DEFAULT 0,
-            created_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
-            expires_at   DATETIME     NULL DEFAULT NULL,
+            created_at   TIMESTAMP    DEFAULT NOW(),
+            expires_at   TIMESTAMP,
             import_count INT          NOT NULL DEFAULT 0
         )""",
     ]
+    conn = get_db()
+    conn.autocommit = True
     for sql in tables:
         try:
-            db_exec(sql)
-        except Exception:
-            pass
-    # Silent migrations
-    silent_alters = [
-        "ALTER TABLE practice_log ADD COLUMN practice_mode VARCHAR(20) NULL AFTER direction",
-        "ALTER TABLE users ADD COLUMN email VARCHAR(120) NULL AFTER username",
-        "ALTER TABLE word_groups ADD COLUMN example_sentence TEXT NULL AFTER spanish",
-        "ALTER TABLE word_groups ADD COLUMN category VARCHAR(80) NOT NULL DEFAULT '' AFTER example_sentence",
-        "ALTER TABLE word_srs ADD COLUMN last_quality INT NULL",
-    ]
-    for sql in silent_alters:
-        try:
-            db_exec(sql)
-        except Exception:
-            pass
+            with conn.cursor() as cur:
+                cur.execute(sql)
+        except Exception as e:
+            print(f"[TABLE WARNING] {e}")
 
 
 @auth_bp.route("/auth", methods=["GET", "POST", "OPTIONS"])
@@ -155,7 +135,6 @@ def auth():
             return err("El usuario debe tener al menos 3 caracteres")
         if len(username) > 30:
             return err("El usuario no puede superar 30 caracteres")
-        import re
         if not re.match(r"^[a-z0-9_]+$", username):
             return err("Solo letras, números y guión bajo")
         if len(password) < 6:
@@ -167,7 +146,7 @@ def auth():
 
         pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
         uid = db_insert(
-            "INSERT INTO users (username, password) VALUES (%s, %s)",
+            "INSERT INTO users (username, password) VALUES (%s, %s) RETURNING id",
             (username, pw_hash),
         )
         token = make_token(uid)
