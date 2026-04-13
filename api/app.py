@@ -15,7 +15,7 @@ from stats import stats_bp
 from notify import notify_bp
 from share import share_bp
 
-app = Flask(__name__, static_folder="static", static_url_path="")
+app = Flask(__name__, static_folder="../static", static_url_path="")
 
 # CORS — permite peticiones del frontend (mismo dominio en Render o diferente)
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
