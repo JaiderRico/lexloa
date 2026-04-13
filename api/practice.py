@@ -3,7 +3,7 @@ practice.py — Práctica diaria + streak + edit (PostgreSQL)
 """
 from datetime import date, timedelta
 from flask import Blueprint, request, g
-from config import (
+from api.config import (
     ok, err, body, db_exec, db_fetchall, db_fetchone,
     db_insert, db_update, groq_call, parse_groq_json, require_auth, get_db
 )
