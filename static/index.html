@@ -1144,7 +1144,7 @@ async function api(path, opts={}) {
 
 async function boot() {
   if (_token) {
-    const r = await api(`/auth.php?action=me`);
+    const r = await api(`/auth?action=me`);
     if (r.ok) { showApp(r.data.username); return; }
     _token = ''; localStorage.removeItem('lexlo_token'); localStorage.removeItem('lexlo_user');
   }
@@ -1174,7 +1174,7 @@ async function checkOnboarding(isNew=false){
     document.getElementById('onboarding-banner').classList.add('visible');
     return;
   }
-  const r = await api('/words.php?action=dates');
+  const r = await api('/words?action=dates');
   if(!r.ok){
     // Si la API falla, mostrar onboarding igualmente (safe default)
     document.getElementById('onboarding-banner').classList.add('visible');
@@ -1209,7 +1209,7 @@ async function doAuth() {
   btn.disabled = true; btn.textContent = '...';
   const action = _authMode === 'login' ? 'login' : 'register';
   const formBody = 'username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password);
-  const r = await api('/auth.php?action=' + action, {method:'POST', body:formBody, headers:{'Content-Type':'application/x-www-form-urlencoded'}});
+  const r = await api('/auth?action=' + action, {method:'POST', body:formBody, headers:{'Content-Type':'application/x-www-form-urlencoded'}});
   btn.disabled = false; btn.textContent = _authMode === 'login' ? 'Entrar' : 'Crear cuenta';
   if (!r.ok) { errEl.textContent = r.error; return; }
   _token = r.data.token;
@@ -1221,7 +1221,7 @@ async function doAuth() {
   showApp(r.data.username, isNew);
 }
 async function doLogout() {
-  await api('/auth.php?action=logout', {method:'POST', body:JSON.stringify({token:_token})});
+  await api('/auth?action=logout', {method:'POST', body:JSON.stringify({token:_token})});
   _token = ''; _username = '';
   localStorage.removeItem('lexlo_token'); localStorage.removeItem('lexlo_user');
   document.cookie = 'lexlo_token=;path=/;max-age=0';
@@ -1277,7 +1277,7 @@ async function addAnswerAsSynonym(){
   if(!_errGroupId||!_errYourAnswer) return;
   const btn=document.querySelector('#err-synonym-row button');
   if(btn){btn.disabled=true;btn.textContent='Agregando...';}
-  const r=await api('/words.php?action=add_synonym',{method:'POST',body:JSON.stringify({group_id:_errGroupId,word:_errYourAnswer.trim()})});
+  const r=await api('/words?action=add_synonym',{method:'POST',body:JSON.stringify({group_id:_errGroupId,word:_errYourAnswer.trim()})});
   if(r.ok){ toast('Sinónimo agregado ✓'); if(btn){btn.textContent='✓ Agregado';} }
   else{ toast('Error al agregar sinónimo','err'); if(btn){btn.disabled=false;btn.textContent='+ Agregar mi respuesta como sinónimo';} }
 }
@@ -1319,7 +1319,7 @@ async function saveEdit(){
   const btn=document.getElementById('btn-save-edit');
   btn.disabled=true; btn.textContent='Guardando...';
   let r;
-  try { r=await api('/practice.php?action=edit',{method:'POST',body:JSON.stringify({group_id:_editId,spanish,english,difficulties})}); }
+  try { r=await api('/practice?action=edit',{method:'POST',body:JSON.stringify({group_id:_editId,spanish,english,difficulties})}); }
   catch(e){ r={ok:false,error:'Error de conexión'}; }
   finally { btn.disabled=false; btn.textContent='Guardar cambios'; }
   if(!r.ok){toast(r.error,'err');return;}
@@ -1372,7 +1372,7 @@ async function doReset(){
   if((scope==='date'||scope==='week')&&!value){ toast('Selecciona una fecha','err'); return; }
   const btn=document.getElementById('btn-do-reset');
   btn.disabled=true; btn.textContent='Borrando...';
-  const endpoint = scope==='srs' ? '/srs.php?action=reset_progress' : '/words.php?action=reset';
+  const endpoint = scope==='srs' ? '/srs?action=reset_progress' : '/words?action=reset';
   const r=await api(endpoint,{method:'POST',body:JSON.stringify({scope,value})});
   btn.disabled=false; btn.textContent='Confirmar y borrar';
   if(!r.ok){ toast(r.error,'err'); return; }
@@ -1386,7 +1386,7 @@ async function doReset(){
 // Borrar todo directamente desde Buscar (para testing)
 async function quickDeleteAll() {
   if (!confirm('¿Borrar TODAS las palabras? Esta acción no se puede deshacer.')) return;
-  const r = await api('/words.php?action=reset', { method: 'POST', body: JSON.stringify({ scope: 'all', value: '' }) });
+  const r = await api('/words?action=reset', { method: 'POST', body: JSON.stringify({ scope: 'all', value: '' }) });
   if (!r.ok) { toast(r.error || 'Error al borrar', 'err'); return; }
   toast('🗑 Todo borrado');
   _allDates = []; loadWordList();
@@ -1427,7 +1427,7 @@ async function saveGroup(){
   document.getElementById('add-warn-box')?.remove();
   btn.disabled=true; btn.textContent='Verificando con IA...';
   let vr;
-  try { vr=await api('/words.php?action=validate',{method:'POST',body:JSON.stringify({spanish,english:englishWords})}); }
+  try { vr=await api('/words?action=validate',{method:'POST',body:JSON.stringify({spanish,english:englishWords})}); }
   catch(e){ vr={ok:false,error:'Error de conexión'}; }
   finally { btn.disabled=false; btn.textContent='Guardar grupo'; }
 
@@ -1475,7 +1475,7 @@ async function _doSaveGroup(spanish, english){
   const btn=document.getElementById('btn-save');
   btn.disabled=true; btn.textContent='Guardando...';
   let r;
-  try { r=await api('/words.php?action=add',{method:'POST',body:JSON.stringify({spanish,english})}); }
+  try { r=await api('/words?action=add',{method:'POST',body:JSON.stringify({spanish,english})}); }
   catch(e){ r={ok:false,error:'Error de conexión'}; }
   finally { btn.disabled=false; btn.textContent='Guardar grupo'; }
   if(!r.ok){toast(r.error,'err');return;}
@@ -1491,7 +1491,7 @@ function resetAddForm(){
 
 async function loadWordList(){
   const date=document.getElementById('list-date').value||today();
-  const r=await api(`/words.php?action=list&date=${date}`);
+  const r=await api(`/words?action=list&date=${date}`);
   const cont=document.getElementById('word-list-container');
   if(!r.ok||!r.data.length){ cont.innerHTML=`<div class="empty"><div class="empty-icon">◌</div>Sin palabras para este día</div>`; return; }
   cont.innerHTML=r.data.map(g=>{
@@ -1523,7 +1523,7 @@ async function loadWordList(){
 }
 async function deleteGroup(id){
   if(!confirm('¿Eliminar este grupo?'))return;
-  const r=await api(`/words.php?action=delete&id=${id}`,{method:'DELETE'});
+  const r=await api(`/words?action=delete&id=${id}`,{method:'DELETE'});
   if(r.ok){toast('Eliminado');loadWordList();}else toast(r.error,'err');
 }
 
@@ -1533,7 +1533,7 @@ async function deleteGroup(id){
 async function loadVocabTotal(){
   const el=document.getElementById('vocab-total-label');
   if(!el) return;
-  const r=await api('/words.php?action=dates');
+  const r=await api('/words?action=dates');
   if(!r.ok) return;
   _totalVocab=(r.data||[]).reduce((s,d)=>s+parseInt(d.total||0),0);
   el.textContent=_totalVocab>0?`${_totalVocab} palabras en total`:'';
@@ -1549,7 +1549,7 @@ async function loadDayDateButtons(){
   const wrap=document.getElementById('search-day-dates');
   if(wrap.dataset.loaded) return;
   wrap.dataset.loaded='1';
-  const r=await api('/words.php?action=dates');
+  const r=await api('/words?action=dates');
   if(!r.ok||!r.data.length){wrap.innerHTML='<span style="font-size:12px;color:var(--muted);">Sin fechas</span>';return;}
   wrap.innerHTML=r.data.map(d=>`
     <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px;" onclick="loadSearchByDayDate('${d.date}')">
@@ -1565,7 +1565,7 @@ async function loadSearchByDayDate(date){
   document.getElementById('search-day-inp').value=date;
   const cont=document.getElementById('search-day-results');
   cont.innerHTML=`<div class="empty"><div class="empty-icon">◌</div>Cargando...</div>`;
-  const r=await api(`/words.php?action=list&date=${date}`);
+  const r=await api(`/words?action=list&date=${date}`);
   if(!r.ok||!r.data.length){cont.innerHTML=`<div class="empty"><div class="empty-icon">◌</div>Sin palabras para ${fmtDate(date)}</div>`;return;}
   cont.innerHTML=`<div class="search-header">${r.data.length} palabra${r.data.length!==1?'s':''} · ${fmtDate(date)}</div>`
     +r.data.map(g=>{
@@ -1592,11 +1592,11 @@ async function doSearch(){
   const cont=document.getElementById('search-results');
   if(q.length<2){toast('Mínimo 2 caracteres','err');return;}
   cont.innerHTML=`<div class="empty"><div class="empty-icon">◌</div>Buscando...</div>`;
-  const r=await api(`/words.php?action=search&q=${encodeURIComponent(q)}&lang=${lang}`);
+  const r=await api(`/words?action=search&q=${encodeURIComponent(q)}&lang=${lang}`);
   if(!r.ok){cont.innerHTML=`<div class="empty"><div class="empty-icon">◌</div>${esc(r.error)}</div>`;return;}
   if(!r.data.results.length){cont.innerHTML=`<div class="empty"><div class="empty-icon">◌</div>Sin resultados para "${esc(q)}"</div>`;return;}
   // Cargar total de vocab si no está cacheado
-  if(!_totalVocab) { const td=await api('/words.php?action=dates'); if(td.ok) _totalVocab=(td.data||[]).reduce((s,d)=>s+parseInt(d.total||0),0); }
+  if(!_totalVocab) { const td=await api('/words?action=dates'); if(td.ok) _totalVocab=(td.data||[]).reduce((s,d)=>s+parseInt(d.total||0),0); }
   const totalInfo=_totalVocab?` · <span style="color:var(--muted);">${_totalVocab} en total</span>`:'';
   cont.innerHTML=`<div class="search-header">${r.data.total} resultado${r.data.total!==1?'s':''} de "${esc(q)}"${totalInfo}</div>`
     +r.data.results.map(g=>{
@@ -1627,21 +1627,21 @@ async function scanTranslations(){
   const cont=document.getElementById('scan-results');
   btn.disabled=true; btn.textContent='Escaneando...';
   cont.innerHTML=`<div style="font-size:12px;color:var(--muted);padding:12px 0 4px;">Cargando todas las palabras...</div>`;
-  const rd=await api('/words.php?action=dates');
+  const rd=await api('/words?action=dates');
   if(!rd.ok||!rd.data.length){
     cont.innerHTML=`<div style="font-size:12px;color:var(--muted);padding:8px 0;">No hay palabras para escanear.</div>`;
     btn.disabled=false; btn.textContent='🔍 Escanear'; return;
   }
   let allWords=[];
   for(const row of rd.data){
-    const r=await api(`/words.php?action=list&date=${row.date}`);
+    const r=await api(`/words?action=list&date=${row.date}`);
     if(r.ok) allWords=allWords.concat(r.data);
   }
   if(!allWords.length){ cont.innerHTML=''; btn.disabled=false; btn.textContent='🔍 Escanear'; return; }
   cont.innerHTML=`<div style="font-size:12px;color:var(--muted);padding:12px 0 4px;">Verificando ${allWords.length} grupos con IA...</div>`;
   const issues=[];
   for(const g of allWords){
-    const vr=await api('/words.php?action=validate',{method:'POST',body:JSON.stringify({spanish:g.spanish,english:g.english_words})});
+    const vr=await api('/words?action=validate',{method:'POST',body:JSON.stringify({spanish:g.spanish,english:g.english_words})});
     if(vr.ok && vr.data && !vr.data.valid) issues.push({...g, warning:vr.data.warning, suggestion:vr.data.suggestion, word_results:vr.data.word_results});
   }
   btn.disabled=false; btn.textContent='🔍 Escanear';
@@ -1671,7 +1671,7 @@ async function scanTranslations(){
 async function toggleWordDiffInList(groupId, wordIndex, pillEl){
   const isHard=pillEl.classList.contains('hard');
   const newDiff=isHard?'normal':'hard';
-  const r=await api('/words.php?action=set_word_diff',{method:'POST',body:JSON.stringify({group_id:groupId,word_index:wordIndex,difficulty:newDiff})});
+  const r=await api('/words?action=set_word_diff',{method:'POST',body:JSON.stringify({group_id:groupId,word_index:wordIndex,difficulty:newDiff})});
   if(!r.ok){toast(r.error,'err');return;}
   pillEl.classList.toggle('hard',!isHard);
   pillEl.classList.toggle('normal',isHard);
@@ -1684,7 +1684,7 @@ function openEditModalSearch(id, spanish, englishWords, difficulties){
 }
 async function deleteGroupSearch(id){
   if(!confirm('¿Eliminar este grupo?')) return;
-  const r=await api(`/words.php?action=delete&id=${id}`,{method:'DELETE'});
+  const r=await api(`/words?action=delete&id=${id}`,{method:'DELETE'});
   if(r.ok){ toast('Eliminado'); doSearch(); loadWordList(); }
   else toast(r.error,'err');
 }
@@ -1725,16 +1725,16 @@ function practiceUrl(seen) {
     const available = _practiceFilterIds.filter(id => !seen.includes(id));
     if (available.length === 0) {
       _seen = [];
-      return `/practice.php?action=random_ids&ids=${_practiceFilterIds.join(',')}&seen=`;
+      return `/practice?action=random_ids&ids=${_practiceFilterIds.join(',')}&seen=`;
     }
-    return `/practice.php?action=random_ids&ids=${_practiceFilterIds.join(',')}&seen=${seen.join(',')}`;
+    return `/practice?action=random_ids&ids=${_practiceFilterIds.join(',')}&seen=${seen.join(',')}`;
   }
   const sel = getPracticeSelection();
   if (!sel.dates.length) return null;
   const datesParam = sel.dates.join(',');
   const seenParam  = seen.join(',');
   const pdParam    = sel.perDay > 0 ? `&per_day=${sel.perDay}` : '';
-  return `/practice.php?action=random&dates=${datesParam}&seen=${seenParam}${pdParam}`;
+  return `/practice?action=random&dates=${datesParam}&seen=${seenParam}${pdParam}`;
 }
 
 function updateDaySummary() {
@@ -1760,7 +1760,7 @@ async function setDaySelMode(mode, el) {
 
 async function loadAvailableDates() {
   if (_allDates.length) { renderMultiDayList(); return; }
-  const r = await api('/words.php?action=dates');
+  const r = await api('/words?action=dates');
   if (!r.ok) return;
   _allDates = (r.data || []).map(d => d.date);
   renderMultiDayList();
@@ -1852,7 +1852,7 @@ async function loadPracticeStats(){
     el.textContent = `${_sessionCorrect} correctas de ${_sessionTotal} intentos (${pct}%)`;
   }
   // Check SRS due
-  const srs=await api('/srs.php?action=due&limit=1');
+  const srs=await api('/srs?action=due&limit=1');
   const banner=document.getElementById('srs-due-banner');
   if(banner && srs.ok){
     const due=srs.data.total_due||0;
@@ -1882,7 +1882,7 @@ function trackSessionResult(correct){
 
 // Start a practice session with only SRS-due words
 async function startSrsDueSession() {
-  const r = await api('/srs.php?action=due&limit=50');
+  const r = await api('/srs?action=due&limit=50');
   if(!r.ok || !r.data.due.length){ toast('No hay palabras pendientes','err'); return; }
   // Override selection to use these specific group IDs as dates from their created_at
   const dates = [...new Set(r.data.due.map(w=>w.created_at))];
@@ -1991,7 +1991,7 @@ async function checkAnswer(){
     // Check via AI — send all targets and user's answers
     let r;
     try {
-      r=await api('/practice.php?action=check_multi',{method:'POST',body:JSON.stringify({
+      r=await api('/practice?action=check_multi',{method:'POST',body:JSON.stringify({
         group_id:_cur.id, direction:_dir, answer, question:_cur._q,
         expected_count: targets.length
       })});
@@ -2010,7 +2010,7 @@ async function checkAnswer(){
   } else {
     // Single word: use existing check endpoint
     let r;
-    try { r=await api('/practice.php?action=check',{method:'POST',body:JSON.stringify({group_id:_cur.id,direction:_dir,answer,question:_cur._q,mode:_practiceMode})}); }
+    try { r=await api('/practice?action=check',{method:'POST',body:JSON.stringify({group_id:_cur.id,direction:_dir,answer,question:_cur._q,mode:_practiceMode})}); }
     catch(e){ r={ok:false,error:'Error de conexión'}; }
     if(!r.ok){toast('Error al verificar','err'); if(btn){btn.disabled=false; btn.style.display='none';} return;}
     correct       = r.data.correct;
@@ -2085,7 +2085,7 @@ function _rateAndNext(groupId, quality, btn) {
   btn.style.background = quality <= 2 ? 'rgba(224,85,85,.15)' : quality === 3 ? 'rgba(61,232,200,.1)' : 'rgba(74,212,138,.15)';
   btn.style.borderColor = quality <= 2 ? 'var(--danger)' : quality === 3 ? 'var(--accent)' : 'var(--success)';
   // Save SRS review
-  api('/srs.php?action=review', {method:'POST', body:JSON.stringify({group_id:groupId, quality})}).catch(()=>{});
+  api('/srs?action=review', {method:'POST', body:JSON.stringify({group_id:groupId, quality})}).catch(()=>{});
   // Advance to next question after brief delay
   const card = document.getElementById('practice-card');
   const onNext = card?._srsOnNext;
@@ -2127,7 +2127,7 @@ async function loadMultipleChoice(){
   const correctList=_dir==='es_en'?_cur.english_words:[_cur.spanish];
   _mcCorrects=new Set(correctList.map(s=>s.toLowerCase()));
   _mcSelected=new Set(); _mcDone=false;
-  const rd=await api(`/words.php?action=distractors&group_id=${_cur.id}&date=${_cur.created_at||today()}`);
+  const rd=await api(`/words?action=distractors&group_id=${_cur.id}&date=${_cur.created_at||today()}`);
   const distractors=rd.ok?rd.data:[];
   let options=[...correctList];
   for(const d of distractors){
@@ -2270,7 +2270,7 @@ async function checkTimerAnswer(){
   if(!_cur)return;
   const answer=document.getElementById('prac-ans')?.value?.trim()||'';
   if(!answer){ timerExpired(); return; }
-  const r=await api('/practice.php?action=check',{method:'POST',body:JSON.stringify({group_id:_cur.id,direction:_dir,answer,question:_cur._q,mode:_practiceMode})});
+  const r=await api('/practice?action=check',{method:'POST',body:JSON.stringify({group_id:_cur.id,direction:_dir,answer,question:_cur._q,mode:_practiceMode})});
   if(!r.ok){toast('Error','err');return;}
   const{correct,feedback,correct_answer}=r.data;
   trackSessionResult(correct);
@@ -2380,7 +2380,7 @@ async function startMatchMode(){
   // Fetch words for all selected dates
   let allWords=[];
   for(const d of dates){
-    const r=await api(`/words.php?action=list&date=${d}`);
+    const r=await api(`/words?action=list&date=${d}`);
     if(r.ok&&r.data) allWords=allWords.concat(r.data);
   }
   // Shuffle and limit per-day if needed
@@ -2429,14 +2429,14 @@ function matchClick(el){
     _matchPairs[id].matched=true; _matchCorrect++;
     _matchSelected=null;
     // Log correct match to SRS (quality 4 = correct)
-    api('/srs.php?action=review',{method:'POST',body:JSON.stringify({group_id:_matchPairs[id].groupId||_matchPairs[id].id, quality:4})});
+    api('/srs?action=review',{method:'POST',body:JSON.stringify({group_id:_matchPairs[id].groupId||_matchPairs[id].id, quality:4})});
     if(_matchCorrect>=_matchPairs.length){
       trackSessionResult(true);
       setTimeout(()=>{ const c=document.getElementById('practice-card'); if(c) c.innerHTML=`<div style="text-align:center;padding:24px 0;"><div style="font-size:36px;margin-bottom:10px;">🎉</div><div style="font-size:16px;font-weight:800;color:var(--success);">¡Todos emparejados!</div></div>`; },400);
     } else renderMatch();
   } else {
     // Log wrong attempt to SRS (quality 2 = incorrect)
-    api('/srs.php?action=review',{method:'POST',body:JSON.stringify({group_id:_matchPairs[id].groupId||_matchPairs[id].id, quality:2})});
+    api('/srs?action=review',{method:'POST',body:JSON.stringify({group_id:_matchPairs[id].groupId||_matchPairs[id].id, quality:2})});
     el.classList.add('wrong-flash'); prev.el.classList.add('wrong-flash');
     setTimeout(()=>{ el.classList.remove('wrong-flash','selected'); prev.el.classList.remove('wrong-flash','selected'); _matchSelected=null; },700);
   }
@@ -2513,7 +2513,7 @@ async function checkListenAnswer(){
   if(!answer) return;
   const btn=document.querySelector('#practice-action-row .btn-primary');
   if(btn){ btn.disabled=true; btn.textContent='Verificando...'; }
-  const r=await api('/practice.php?action=check',{method:'POST',body:JSON.stringify({
+  const r=await api('/practice?action=check',{method:'POST',body:JSON.stringify({
     group_id:_cur.id, direction:'en_es', answer, question:_cur._listenTarget, mode:'listen'
   })});
   if(btn){ btn.disabled=false; btn.textContent='Verificar'; }
@@ -2559,7 +2559,7 @@ async function loadFillMode(){
 
   let sentences=[];
   try{
-    const rAI=await api('/practice.php?action=hint',{method:'POST',body:JSON.stringify({prompt})});
+    const rAI=await api('/practice?action=hint',{method:'POST',body:JSON.stringify({prompt})});
     if(rAI.ok&&rAI.data?.hint){
       const text=rAI.data.hint.replace(/```json|```/g,'').trim();
       try{ sentences=JSON.parse(text); }catch(e){}
@@ -2653,7 +2653,7 @@ async function checkFillAnswer(){
   if(!answer) return;
   const btn=document.querySelector('#practice-action-row .btn-primary');
   if(btn){ btn.disabled=true; btn.textContent='Verificando...'; }
-  const r=await api('/practice.php?action=check',{method:'POST',body:JSON.stringify({
+  const r=await api('/practice?action=check',{method:'POST',body:JSON.stringify({
     group_id:_cur.id, direction:'es_en', answer, question:_cur.spanish, mode:'fill'
   })});
   if(btn){ btn.disabled=false; btn.textContent='Verificar'; }
@@ -2684,7 +2684,7 @@ async function showHint(){
   const lang=_dir==='es_en'?'español':'inglés';
   const ans=_dir==='es_en'?_cur.english_words.join(', '):_cur.spanish;
   const prompt=`Eres un tutor de vocabulario. La palabra en ${lang} es "${word}". Sin revelar la traducción directa ("${ans}"), da una pista útil en español: origen, contexto, frase de ejemplo, o mnemotecnia. Máximo 40 palabras. Solo la pista, sin introducción.`;
-  const r=await api('/practice.php?action=hint',{method:'POST',body:JSON.stringify({prompt})});
+  const r=await api('/practice?action=hint',{method:'POST',body:JSON.stringify({prompt})});
   hbox.className='hint-box';
   hbox.innerHTML=r.ok&&r.data?.hint
     ?`<span class="ai-badge"><span class="ai-dot"></span>IA</span> ${esc(r.data.hint)}`
@@ -2741,7 +2741,7 @@ async function loadProgressPage() {
 
 // ── SRS overview cards ──────────────────────────────────────
 async function loadSrsOverview() {
-  const r = await api('/srs.php?action=overview');
+  const r = await api('/srs?action=overview');
   const wrap = document.getElementById('srs-overview-cards');
   if (!wrap) return;
   if (!r.ok) { wrap.innerHTML = `<div style="color:var(--muted);font-size:12px;">No disponible</div>`; return; }
@@ -2798,7 +2798,7 @@ async function loadSrsOverview() {
 // ── Heatmap ─────────────────────────────────────────────────
 async function loadHeatmap() {
   const months = document.getElementById('heatmap-months')?.value || 6;
-  const r = await api(`/stats.php?action=heatmap&months=${months}`);
+  const r = await api(`/stats?action=heatmap&months=${months}`);
   const wrap = document.getElementById('heatmap-container');
   if (!wrap) return;
   if (!r.ok || !r.data.length) { wrap.innerHTML = `<div style="font-size:12px;color:var(--muted);">Sin actividad aún</div>`; return; }
@@ -2940,7 +2940,7 @@ async function loadHeatmap() {
 
 // ── Mode stats ───────────────────────────────────────────────
 async function loadModeStats() {
-  const r = await api('/stats.php?action=mode_breakdown');
+  const r = await api('/stats?action=mode_breakdown');
   const wrap = document.getElementById('mode-stats-container');
   if (!wrap) return;
   if (!r.ok || !r.data.length) {
@@ -2973,7 +2973,7 @@ async function loadWordProgress() {
   const wrap = document.getElementById('word-progress-container');
   if (!wrap) return;
   wrap.innerHTML = `<div style="font-size:12px;color:var(--muted);padding:10px 0;">Cargando...</div>`;
-  const r = await api(`/srs.php?action=word_progress&filter=${_progFilter}`);
+  const r = await api(`/srs?action=word_progress&filter=${_progFilter}`);
   if (!r.ok || !r.data.length) {
     wrap.innerHTML = `<div class="empty" style="padding:20px 0;"><div class="empty-icon">◌</div>Sin palabras${_progFilter!=='all'?' en este filtro':''}</div>`;
     return;
@@ -3030,7 +3030,7 @@ async function loadWordProgress() {
 
 async function toggleMastered(groupId, currentMastered, btn) {
   btn.disabled = true; btn.textContent = '...';
-  const r = await api('/srs.php?action=mark_mastered', {
+  const r = await api('/srs?action=mark_mastered', {
     method: 'POST',
     body: JSON.stringify({ group_id: groupId, mastered: !currentMastered })
   });
@@ -3040,7 +3040,7 @@ async function toggleMastered(groupId, currentMastered, btn) {
 
 // ── Export / Import ──────────────────────────────────────────
 async function exportWords() {
-  const r = await fetch(API + '/stats.php?action=export', { headers: { 'X-Session-Token': _token || '' } });
+  const r = await fetch(API + '/stats?action=export', { headers: { 'X-Session-Token': _token || '' } });
   if (!r.ok) { toast('Error al exportar', 'err'); return; }
   const blob = await r.blob();
   const url  = URL.createObjectURL(blob);
@@ -3113,7 +3113,7 @@ async function importWords(input) {
           const packLabel = importedCategory
             ? `${importedCategory} (${wordsForPack.length} palabras)`
             : `${file.name.replace(/\.json$/i,'')} — ${wordsForPack.length} palabras`;
-          await api('/share.php?action=create', {
+          await api('/share?action=create', {
             method: 'POST',
             body: JSON.stringify({
               label: packLabel,
@@ -3141,7 +3141,7 @@ async function importWords(input) {
 async function loadVocabTotal() {
   const el = document.getElementById('vocab-total-label');
   if (!el) return;
-  const r = await api('/words.php?action=dates');
+  const r = await api('/words?action=dates');
   if (!r.ok) return;
   const total = (r.data || []).reduce((s, d) => s + (parseInt(d.total) || 0), 0);
   el.textContent = total ? `${total} palabras en total` : '';
@@ -3181,11 +3181,11 @@ async function createSharePack() {
     if (!body.dates.length) body.date = today();
   } else {
     // all — no date filter, pass no dates; backend will use all dates
-    const rd = await api('/words.php?action=dates');
+    const rd = await api('/words?action=dates');
     body.dates = rd.ok ? rd.data.map(d => d.date) : [today()];
   }
 
-  const r = await api('/share.php?action=create', { method: 'POST', body: JSON.stringify(body) });
+  const r = await api('/share?action=create', { method: 'POST', body: JSON.stringify(body) });
   if (btn) { btn.disabled = false; btn.textContent = 'Crear link →'; }
   if (!r.ok) {
     result.innerHTML = `<div style="font-size:12px;color:var(--danger);">Error: ${esc(r.error)}</div>`;
@@ -3215,7 +3215,7 @@ async function previewSharePack() {
       `<div style="font-size:12px;color:var(--danger);">Token inválido — debe tener 32 caracteres</div>`;
     return;
   }
-  const r = await api(`/share.php?action=get&token=${token}`);
+  const r = await api(`/share?action=get&token=${token}`);
   const wrap = document.getElementById('share-import-result');
   if (!r.ok) {
     wrap.innerHTML = `<div style="font-size:12px;color:var(--danger);">No encontrado: ${esc(r.error)}</div>`;
@@ -3242,7 +3242,7 @@ async function previewSharePack() {
 
 async function doImportSharePack(token) {
   // Primero obtenemos la lista de palabras del pack para confirmar
-  const r = await api(`/share.php?action=get&token=${token}`);
+  const r = await api(`/share?action=get&token=${token}`);
   const wrap = document.getElementById('share-import-result');
   if (!r.ok) { toast(r.error, 'err'); return; }
   const words = r.data.words || [];
@@ -3264,7 +3264,7 @@ async function loadPublicPacks() {
   if (!wrap) return;
   const cat = catSel?.value || '';
   wrap.innerHTML = `<div style="font-size:12px;color:var(--muted);">Cargando...</div>`;
-  const r = await api(`/share.php?action=public_packs${cat ? '&category='+encodeURIComponent(cat) : ''}`);
+  const r = await api(`/share?action=public_packs${cat ? '&category='+encodeURIComponent(cat) : ''}`);
   if (!r.ok) { wrap.innerHTML = `<div style="font-size:12px;color:var(--danger);">Error al cargar</div>`; return; }
 
   // Actualizar opciones de categoría
@@ -3305,7 +3305,7 @@ async function loadMyPacks() {
   const wrap = document.getElementById('my-packs-list');
   if (!wrap) return;
   wrap.innerHTML = `<div style="font-size:12px;color:var(--muted);">Cargando...</div>`;
-  const r = await api('/share.php?action=mine');
+  const r = await api('/share?action=mine');
   if (!r.ok || !r.data.length) {
     wrap.innerHTML = `<div style="font-size:12px;color:var(--muted);padding:4px 0;">Sin paquetes creados aún — importá un JSON o creá uno desde "Compartir palabras"</div>`;
     return;
@@ -3330,7 +3330,7 @@ async function loadMyPacks() {
 async function deleteSharePack(token, btn) {
   if (!confirm('¿Eliminar este paquete? Los que ya lo importaron no se verán afectados.')) return;
   btn.disabled = true;
-  const r = await api(`/share.php?action=delete&token=${token}`, { method: 'DELETE' });
+  const r = await api(`/share?action=delete&token=${token}`, { method: 'DELETE' });
   if (r.ok) { toast('Paquete eliminado'); loadMyPacks(); }
   else { btn.disabled = false; toast(r.error, 'err'); }
 }
@@ -3340,7 +3340,7 @@ async function loadSessionHistory() {
   const wrap = document.getElementById('session-history-container');
   if (!wrap) return;
   wrap.innerHTML = `<div style="font-size:12px;color:var(--muted);">Cargando...</div>`;
-  const r = await api(`/stats.php?action=session_history&days=${days}`);
+  const r = await api(`/stats?action=session_history&days=${days}`);
   if (!r.ok || !r.data.length) {
     wrap.innerHTML = `<div class="empty" style="padding:16px 0;"><div class="empty-icon">◌</div>Sin sesiones en este período</div>`;
     return;
@@ -3377,7 +3377,7 @@ async function loadSessionHistory() {
 //  NOTIFICATIONS
 // ══════════════════════════════════════════════════════════
 async function loadNotifPrefs() {
-  const r = await api('/notify.php?action=prefs');
+  const r = await api('/notify?action=prefs');
   if (!r.ok) return;
   const { email, enabled, notify_hour } = r.data;
   const cb = document.getElementById('notif-enabled');
@@ -3404,7 +3404,7 @@ async function saveNotifPrefs() {
 
   if (enabled && !email) { toast('Ingresa tu email', 'err'); return; }
 
-  const r = await api('/notify.php?action=save', {
+  const r = await api('/notify?action=save', {
     method: 'POST',
     body: JSON.stringify({ email, enabled, notify_hour: hour })
   });
@@ -3423,7 +3423,7 @@ async function testNotifEmail() {
   const status = document.getElementById('notif-status');
   if (!email) { toast('Ingresa tu email primero', 'err'); return; }
   if (status) { status.textContent = 'Enviando...'; status.style.color = 'var(--muted)'; }
-  const r = await api('/notify.php?action=test', { method: 'POST', body: JSON.stringify({ email }) });
+  const r = await api('/notify?action=test', { method: 'POST', body: JSON.stringify({ email }) });
   if (r.ok) {
     if (status) { status.textContent = '✓ Email enviado, revisa tu bandeja'; status.style.color = 'var(--success)'; }
   } else {
@@ -3435,7 +3435,7 @@ async function testNotifEmail() {
 //  STATS
 // ══════════════════════════════════════════════════════════
 async function loadStats(){
-  const r=await api('/words.php?action=weekly_stats');
+  const r=await api('/words?action=weekly_stats');
   const cont=document.getElementById('stats-container');
   if(!r.ok||!r.data.length){ cont.innerHTML=`<div class="empty"><div class="empty-icon">◌</div>Sin datos aún</div>`; }
   else{
@@ -3447,7 +3447,7 @@ async function loadStats(){
         <div class="wc-days">${w.days_active} día${w.days_active!=1?'s':''} activo${w.days_active!=1?'s':''}</div>
       </div>`).join('')+`</div>`;
   }
-  const rq=await api('/quiz.php?action=history');
+  const rq=await api('/quiz?action=history');
   const qh=document.getElementById('quiz-history');
   if(rq.ok&&rq.data.length){
     qh.innerHTML=rq.data.map(t=>{
@@ -3463,7 +3463,7 @@ async function loadAccuracy(){
   const cont=document.getElementById('accuracy-container');
   if(!cont) return;
   cont.innerHTML=`<div style="font-size:12px;color:var(--muted);padding:8px 0;">Cargando...</div>`;
-  const r=await api('/practice.php?action=word_accuracy');
+  const r=await api('/practice?action=word_accuracy');
   if(!r.ok||!r.data.length){
     cont.innerHTML=`<div class="empty" style="padding:20px 0;"><div class="empty-icon" style="font-size:18px;">◌</div>Necesitas al menos 3 intentos por palabra para ver estadísticas</div>`;
     return;
@@ -3553,16 +3553,16 @@ function switchQuizTab(tab){
 }
 async function startQuizN(){
   _qw='';
-  const r=await api(`/quiz.php?action=questions_n&n=${_quizN}&src=${_quizSrc}`);
+  const r=await api(`/quiz?action=questions_n&n=${_quizN}&src=${_quizSrc}`);
   if(!r.ok||!r.data.questions?.length){toast('No hay palabras disponibles','err');return;}
   _qd=r.data.questions; _qi=0; _qa=[]; renderQQ();
 }
 async function startQuiz(){
   const ws=document.getElementById('quiz-week').value||mondayOf(); _qw=ws;
-  const r=await api(`/quiz.php?action=questions&week_start=${ws}`);
+  const r=await api(`/quiz?action=questions&week_start=${ws}`);
   if(!r.ok){
     toast('No hay palabras en esa semana — usando todas las disponibles','err');
-    const r2=await api(`/quiz.php?action=questions_n&n=20&src=all`);
+    const r2=await api(`/quiz?action=questions_n&n=20&src=all`);
     if(!r2.ok||!r2.data.questions?.length){toast('No hay palabras disponibles para el quiz','err');return;}
     _qd=r2.data.questions; _qi=0; _qa=[]; renderQQ();
     return;
@@ -3612,7 +3612,7 @@ async function submitQuiz(){
   const cont=document.getElementById('quiz-container');
   cont.innerHTML=`<div class="empty"><div class="empty-icon">◌</div>Evaluando con IA...</div>`;
   const duration=_quizStartTime?Math.round((Date.now()-_quizStartTime)/1000):0;
-  const r=await api('/quiz.php?action=submit',{method:'POST',body:JSON.stringify({week_start:_qw,answers:_qa,duration_secs:duration})});
+  const r=await api('/quiz?action=submit',{method:'POST',body:JSON.stringify({week_start:_qw,answers:_qa,duration_secs:duration})});
   if(!r.ok){toast('Error al enviar quiz','err');return;}
   const{score,total,results}=r.data;
   const pct=Math.round(score/total*100);
@@ -3680,20 +3680,20 @@ async function generarFrase(){
   let words=[];
   try {
     if(modo==='dificiles'){
-      const r=await api('/practice.php?action=word_accuracy');
+      const r=await api('/practice?action=word_accuracy');
       if(r.ok&&r.data.length) words=r.data.slice(0,8).map(w=>({spanish:w.spanish,english:w.english_words}));
     } else if(modo==='recientes'){
-      const r=await api(`/words.php?action=list&date=${today()}`);
+      const r=await api(`/words?action=list&date=${today()}`);
       if(r.ok&&r.data.length) words=r.data.map(w=>({spanish:w.spanish,english:w.english_words}));
       if(!words.length){
-        const rd=await api('/words.php?action=dates');
-        if(rd.ok&&rd.data.length){ const r2=await api(`/words.php?action=list&date=${rd.data[0].date}`); if(r2.ok) words=r2.data.map(w=>({spanish:w.spanish,english:w.english_words})); }
+        const rd=await api('/words?action=dates');
+        if(rd.ok&&rd.data.length){ const r2=await api(`/words?action=list&date=${rd.data[0].date}`); if(r2.ok) words=r2.data.map(w=>({spanish:w.spanish,english:w.english_words})); }
       }
     } else {
-      const rd=await api('/words.php?action=dates');
+      const rd=await api('/words?action=dates');
       if(rd.ok&&rd.data.length){
         const dates=rd.data.slice(0,Math.min(5,rd.data.length));
-        for(const d of dates){ const r=await api(`/words.php?action=list&date=${d.date}`); if(r.ok) words=words.concat(r.data.map(w=>({spanish:w.spanish,english:w.english_words}))); }
+        for(const d of dates){ const r=await api(`/words?action=list&date=${d.date}`); if(r.ok) words=words.concat(r.data.map(w=>({spanish:w.spanish,english:w.english_words}))); }
         words=words.sort(()=>Math.random()-.5);
       }
     }
@@ -3709,7 +3709,7 @@ async function generarFrase(){
 Responde SOLO en este JSON sin markdown:
 {"sentence":"la frase en inglés","translation":"traducción al español","words_used":["word1","word2"],"explanation":"explicación breve en español de por qué se usó así cada palabra, máximo 30 palabras"}`;
 
-  const r=await api('/practice.php?action=hint',{method:'POST',body:JSON.stringify({prompt})});
+  const r=await api('/practice?action=hint',{method:'POST',body:JSON.stringify({prompt})});
   btn.disabled=false; btn.textContent='✨ Generar frase';
 
   if(!r.ok||!r.data?.hint){ cont.innerHTML=`<div class="empty"><div class="empty-icon">◌</div>Error generando frase. Intenta de nuevo.</div>`; return; }
@@ -3811,7 +3811,7 @@ async function doTranslate(){
   const [from,to]=dir.split('-');
   const prompt=`Traduce esta palabra o frase del ${from==='es'?'español':'inglés'} al ${to==='en'?'inglés':'español'}. Responde SOLO con la traducción, sin explicación ni puntuación extra: "${text}"`;
   try{
-    const r=await api('/practice.php?action=hint',{method:'POST',body:JSON.stringify({prompt})});
+    const r=await api('/practice?action=hint',{method:'POST',body:JSON.stringify({prompt})});
     const translation=r.ok&&r.data?.hint ? r.data.hint : '—';
     res.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <span style="font-size:16px;font-weight:700;color:var(--accent);">${esc(translation)}</span>
@@ -3833,7 +3833,7 @@ function addTranslationToForm(original, translation, fromLang){
 // ══════════════════════════════════════════════════════════
 async function practiceFromFilter(filter, label){
   // Fetch words FIRST, then navigate
-  const r = await api(`/srs.php?action=words_by_filter&filter=${filter}`);
+  const r = await api(`/srs?action=words_by_filter&filter=${filter}`);
   if(!r.ok || !r.data?.length){
     toast(`No hay palabras en: ${label}`, 'err');
     return;
@@ -3919,7 +3919,7 @@ Genera exactamente 10 palabras o frases útiles para conversaciones reales. Para
 Responde SOLO en JSON válido, sin markdown ni backticks, con este formato exacto:
 [{"en":"word","es":"palabra","example":"Short example sentence."},...]`;
   try{
-    const r=await api('/practice.php?action=hint',{method:'POST',body:JSON.stringify({prompt})});
+    const r=await api('/practice?action=hint',{method:'POST',body:JSON.stringify({prompt})});
     let text=r.ok&&r.data?.hint?r.data.hint:'';
     text=text.replace(/```json|```/g,'').trim();
     let suggestions=[];
@@ -3951,7 +3951,7 @@ Responde SOLO en JSON válido, sin markdown ni backticks, con este formato exact
 async function addIaSuggestion(es,en,btn){
   btn.disabled=true; btn.textContent='Guardando...';
   const td=today();
-  const r=await api('/words.php?action=add',{method:'POST',body:JSON.stringify({spanish:es,english:[en],date:td})});
+  const r=await api('/words?action=add',{method:'POST',body:JSON.stringify({spanish:es,english:[en],date:td})});
   if(r.ok){ btn.textContent='✓ Agregada'; btn.style.color='var(--success)'; btn.style.borderColor='rgba(74,212,138,.4)'; }
   else{ btn.disabled=false; btn.textContent='+ Agregar'; toast('Error al guardar','err'); }
 }
@@ -4109,7 +4109,7 @@ async function addSingleWord(es, enStr, enArr) {
   if (btnsCont) btnsCont.innerHTML = '<span style="font-size:12px;color:var(--muted);">Guardando...</span>';
 
   try {
-    const r = await api('/words.php?action=add', {
+    const r = await api('/words?action=add', {
       method: 'POST',
       body: JSON.stringify({ spanish: es, english: enArr.map(e => ({ word: e, difficulty: 'normal' })), category: _confirmCategory || '' })
     });
@@ -4296,11 +4296,11 @@ function showImportPracticeModal(added, groupIds, tipo) {
 
 async function _fetchImportPreview(groupIds) {
   try {
-    const r = await api(`/srs.php?action=words_by_ids&ids=${groupIds.slice(0,30).join(',')}`);
+    const r = await api(`/srs?action=words_by_ids&ids=${groupIds.slice(0,30).join(',')}`);
     if (r.ok && r.data?.length) return r.data;
   } catch(e) {}
   try {
-    const r = await api(`/words.php?action=list&date=${today()}`);
+    const r = await api(`/words?action=list&date=${today()}`);
     if (r.ok && r.data?.length) return r.data.slice(0, groupIds.length);
   } catch(e) {}
   return [];
@@ -4521,7 +4521,7 @@ async function _checkSpeakAnswer(transcript) {
   // Use the existing AI check endpoint: direction is en_es (they said the Spanish)
   let correct = false, feedback = '', correct_answer = [];
   try {
-    const r = await api('/practice.php?action=check', {
+    const r = await api('/practice?action=check', {
       method: 'POST',
       body: JSON.stringify({ group_id: _cur.id, direction: 'es_en', answer: transcript, question: _cur._q, mode: 'speak' })
     });
@@ -4576,7 +4576,7 @@ async function loadCategoryFilter() {
   const sel = document.getElementById('practice-category-filter');
   if (!sel) return;
   try {
-    const r = await api('/words.php?action=categories');
+    const r = await api('/words?action=categories');
     if (!r.ok || !r.data?.length) return;
     // Mantener opción "Todas"
     const current = sel.value;
@@ -4593,7 +4593,7 @@ async function onCategoryFilterChange() {
 
   if (_practiceCategory) {
     // Cargar IDs de palabras de esa categoría y usarlos como filtro
-    const r = await api(`/words.php?action=by_category&category=${encodeURIComponent(_practiceCategory)}`);
+    const r = await api(`/words?action=by_category&category=${encodeURIComponent(_practiceCategory)}`);
     if (r.ok && r.data?.length) {
       _practiceFilterIds = r.data.map(w => w.id);
       _practiceUseFilter = true;
@@ -4701,7 +4701,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if(!_origApi) return;
     window.api = async function(path, opts){
       // Solo interceptar GETs de words (lectura de vocabulario)
-      if((!opts || opts.method === undefined || opts.method === 'GET') && path.includes('words.php')){
+      if((!opts || opts.method === undefined || opts.method === 'GET') && path.includes('words')){
         try {
           const res = await _origApi(path, opts);
           if(res.ok){
