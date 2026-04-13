@@ -1,0 +1,402 @@
+"""
+practice.py — Práctica diaria + streak + edit
+"""
+from datetime import date, timedelta
+from flask import Blueprint, request, g
+from config import (
+    ok, err, body, db_exec, db_fetchall, db_fetchone,
+    db_insert, db_update, groq_call, parse_groq_json, require_auth, get_db
+)
+
+practice_bp = Blueprint("practice", __name__)
+
+
+def srs_update(uid: int, group_id: int, correct: bool):
+    try:
+        db_exec(
+            "INSERT IGNORE INTO word_srs (user_id, group_id) VALUES (%s, %s)",
+            (uid, group_id),
+        )
+        srs = db_fetchone(
+            "SELECT easiness, `interval`, repetitions FROM word_srs WHERE user_id = %s AND group_id = %s",
+            (uid, group_id),
+        )
+        if not srs:
+            return
+        ef = float(srs["easiness"])
+        interval = int(srs["interval"])
+        reps = int(srs["repetitions"])
+        quality = 4 if correct else 1
+
+        if quality >= 3:
+            if reps == 0:
+                interval = 1
+            elif reps == 1:
+                interval = 6
+            else:
+                interval = round(interval * ef)
+            reps += 1
+            ef = max(1.3, ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)))
+        else:
+            reps = 0
+            interval = 1
+            ef = max(1.3, ef - 0.2)
+
+        interval = min(365, max(1, interval))
+        next_review = str(date.today() + timedelta(days=interval))
+        mastered = 1 if (interval >= 21 and correct) else 0
+        db_update(
+            "UPDATE word_srs SET easiness=%s, `interval`=%s, repetitions=%s, next_review=%s, last_review=%s, mastered=%s WHERE user_id=%s AND group_id=%s",
+            (ef, interval, reps, next_review, str(date.today()), mastered, uid, group_id),
+        )
+    except Exception:
+        pass
+
+
+def _split(val):
+    return val.split("||") if val else []
+
+
+@practice_bp.route("/practice", methods=["GET", "POST", "OPTIONS"])
+@require_auth
+def practice():
+    if request.method == "OPTIONS":
+        return "", 204
+
+    uid = g.uid
+    method = request.method
+    action = request.args.get("action", "")
+
+    # GET ?action=random_ids
+    if method == "GET" and action == "random_ids":
+        ids = [int(x) for x in request.args.get("ids", "").split(",") if x.strip().isdigit()]
+        seen = [int(x) for x in request.args.get("seen", "").split(",") if x.strip().isdigit()]
+        if not ids:
+            return err("No hay IDs", 400)
+        unseen = [i for i in ids if i not in seen]
+        if not unseen:
+            seen = []
+            unseen = ids
+        ph = ",".join(["%s"] * len(unseen))
+        params = tuple([uid] + unseen)
+        row = db_fetchone(
+            f"""SELECT g.id, g.spanish, g.created_at, g.example_sentence,
+                       GROUP_CONCAT(w.english ORDER BY w.id SEPARATOR '||') AS english_words,
+                       GROUP_CONCAT(w.is_hard  ORDER BY w.id SEPARATOR '||') AS english_diffs
+                FROM word_groups g
+                JOIN words w ON w.group_id = g.id
+                WHERE g.user_id = %s AND g.id IN ({ph})
+                GROUP BY g.id ORDER BY RAND() LIMIT 1""",
+            params,
+        )
+        if not row:
+            return err("No hay palabras disponibles", 404)
+        row["english_words"] = _split(row["english_words"])
+        row["english_diffs"] = _split(row.get("english_diffs") or "")
+        row["total_day"] = len(ids)
+        if row.get("created_at"):
+            row["created_at"] = str(row["created_at"])
+        return ok(row)
+
+    # GET ?action=random
+    if method == "GET" and action == "random":
+        seen = [int(x) for x in request.args.get("seen", "").split(",") if x.strip().isdigit()]
+        per_day = max(0, int(request.args.get("per_day", 0)))
+
+        if request.args.get("dates"):
+            raw_dates = [d.strip() for d in request.args.get("dates", "").split(",")]
+            import re
+            dates = [d for d in raw_dates if re.match(r"^\d{4}-\d{2}-\d{2}$", d)]
+        else:
+            dates = [request.args.get("date", str(date.today()))]
+
+        if not dates:
+            return err("Fechas inválidas", 400)
+
+        eligible_ids = []
+        total_count = 0
+        for d in dates:
+            day_ids = [r["id"] for r in db_fetchall(
+                "SELECT id FROM word_groups WHERE user_id = %s AND created_at = %s ORDER BY id ASC",
+                (uid, d),
+            )]
+            if not day_ids:
+                continue
+            if per_day > 0 and len(day_ids) > per_day:
+                import random
+                random.shuffle(day_ids)
+                day_ids = day_ids[:per_day]
+            eligible_ids.extend(day_ids)
+            total_count += len(day_ids)
+
+        if total_count == 0:
+            return err("No hay palabras para los días seleccionados", 404)
+
+        unseen = [i for i in eligible_ids if i not in seen]
+        if not unseen:
+            seen = []
+            unseen = eligible_ids
+
+        ph = ",".join(["%s"] * len(unseen))
+        all_rows = db_fetchall(
+            f"""SELECT g.id, g.spanish, g.created_at, g.example_sentence,
+                       GROUP_CONCAT(w.english ORDER BY w.id SEPARATOR '||') AS english_words,
+                       GROUP_CONCAT(w.is_hard  ORDER BY w.id SEPARATOR '||') AS english_diffs
+                FROM word_groups g
+                JOIN words w ON w.group_id = g.id
+                WHERE g.user_id = %s AND g.id IN ({ph})
+                GROUP BY g.id ORDER BY RAND() LIMIT 20""",
+            tuple([uid] + unseen),
+        )
+        if not all_rows:
+            return err("No hay palabras disponibles", 404)
+
+        import random
+        pool = []
+        for row in all_rows:
+            diffs = _split(row.get("english_diffs") or "")
+            pool.append(row)
+            if "1" in diffs or 1 in diffs:
+                pool.append(row)
+
+        row = random.choice(pool)
+        row["english_words"] = _split(row["english_words"])
+        row["english_diffs"] = _split(row.get("english_diffs") or "")
+        row["total_day"] = total_count
+        if row.get("created_at"):
+            row["created_at"] = str(row["created_at"])
+        return ok(row)
+
+    # POST ?action=check
+    if method == "POST" and action == "check":
+        try:
+            b = body()
+            group_id = int(b.get("group_id", 0))
+            direction = b.get("direction", "")
+            answer = b.get("answer", "").strip()
+            question = b.get("question", "").strip()
+            mode = b.get("mode", "type")
+            if not all([group_id, direction, answer, question]):
+                return err("Faltan campos requeridos")
+
+            group = db_fetchone(
+                """SELECT g.spanish,
+                          GROUP_CONCAT(w.english ORDER BY w.id SEPARATOR '||') AS english_words
+                   FROM word_groups g JOIN words w ON w.group_id = g.id
+                   WHERE g.id = %s AND g.user_id = %s GROUP BY g.id""",
+                (group_id, uid),
+            )
+            if not group:
+                return err("Grupo no encontrado", 404)
+
+            english_list = _split(group["english_words"])
+            spanish = group["spanish"]
+
+            if direction == "es_en":
+                correct_str = ", ".join(english_list)
+                prompt = f'Palabra en español: "{spanish}". El estudiante respondió: "{answer}". Respuestas correctas: {correct_str}. ¿Es correcta? Acepta sinónimos cercanos, ignora tildes menores. Responde SOLO JSON: {{"correct":true/false,"feedback":"explicación breve en español de máximo 20 palabras"}}'
+            else:
+                prompt = f'La palabra en inglés era: "{question}". El estudiante respondió en español: "{answer}". Respuesta correcta: "{spanish}". ¿Es correcta? Acepta sinónimos muy cercanos. Responde SOLO JSON: {{"correct":true/false,"feedback":"explicación breve en español de máximo 20 palabras"}}'
+
+            raw = groq_call(prompt, 120)
+            parsed = parse_groq_json(raw)
+            if parsed and "correct" in parsed:
+                correct = bool(parsed["correct"])
+                feedback = parsed.get("feedback", "")
+            else:
+                correct = answer.lower() == (english_list[0] if direction == "es_en" else spanish).lower()
+                feedback = "Correcto" if correct else "Incorrecto"
+
+            db_insert(
+                "INSERT INTO practice_log (user_id, group_id, direction, answer, correct, feedback, practice_mode) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (uid, group_id, direction, answer, int(correct), feedback, mode),
+            )
+            srs_update(uid, group_id, correct)
+
+            return ok({
+                "correct": correct,
+                "feedback": feedback,
+                "correct_answer": english_list if direction == "es_en" else [spanish],
+            })
+        except Exception as e:
+            return err(f"Error interno: {e}", 500)
+
+    # POST ?action=check_multi
+    if method == "POST" and action == "check_multi":
+        try:
+            b = body()
+            group_id = int(b.get("group_id", 0))
+            direction = b.get("direction", "")
+            answer = b.get("answer", "").strip()
+            question = b.get("question", "").strip()
+            mode = b.get("mode", "type")
+            if not all([group_id, direction, answer, question]):
+                return err("Faltan campos requeridos")
+
+            group = db_fetchone(
+                """SELECT g.spanish,
+                          GROUP_CONCAT(w.english ORDER BY w.id SEPARATOR '||') AS english_words
+                   FROM word_groups g JOIN words w ON w.group_id = g.id
+                   WHERE g.id = %s AND g.user_id = %s GROUP BY g.id""",
+                (group_id, uid),
+            )
+            if not group:
+                return err("Grupo no encontrado", 404)
+
+            english_list = _split(group["english_words"])
+            spanish = group["spanish"]
+
+            import re
+            user_parts = [p.strip() for p in re.split(r"[,/]", answer) if p.strip()]
+            correct_str = ", ".join(english_list)
+
+            prompt = (
+                f'La palabra en español es "{spanish}". Tiene los siguientes significados en inglés: {correct_str}.\n'
+                f'El estudiante escribió: "{answer}".\n'
+                "¿Escribió TODOS los significados correctamente (en cualquier orden)? Acepta variaciones menores de ortografía y sinónimos muy cercanos.\n"
+                'Responde SOLO JSON: {"correct":true/false,"feedback":"qué faltó o estuvo mal, en español, máximo 25 palabras"}'
+            )
+            raw = groq_call(prompt, 150)
+            parsed = parse_groq_json(raw)
+            eval_result = {"correct": False, "feedback": "Verifica que hayas escrito todos los significados"}
+            if parsed and "correct" in parsed:
+                eval_result = parsed
+            else:
+                user_lc = [x.lower() for x in user_parts]
+                expected_lc = [x.lower() for x in english_list]
+                correct_flag = set(user_lc) == set(expected_lc) and len(user_lc) == len(expected_lc)
+                eval_result = {
+                    "correct": correct_flag,
+                    "feedback": "Correcto" if correct_flag else f"Debes escribir: {correct_str}",
+                }
+
+            db_insert(
+                "INSERT INTO practice_log (user_id, group_id, direction, answer, correct, feedback, practice_mode) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (uid, group_id, direction, answer, int(eval_result["correct"]), eval_result.get("feedback", ""), mode),
+            )
+            srs_update(uid, group_id, bool(eval_result["correct"]))
+            return ok({
+                "correct": bool(eval_result["correct"]),
+                "feedback": eval_result.get("feedback", ""),
+                "correct_answer": english_list if direction == "es_en" else [spanish],
+            })
+        except Exception as e:
+            return err(f"Error interno: {e}", 500)
+
+    # POST ?action=edit
+    if method == "POST" and action == "edit":
+        b = body()
+        gid = int(b.get("group_id", 0))
+        spanish = b.get("spanish", "").strip().lower()
+        english = list(set(filter(None, [e.strip().lower() for e in b.get("english", [])])))
+        difficulties = b.get("difficulties", [])
+        if not gid:
+            return err("ID requerido")
+        if not spanish:
+            return err("El español es requerido")
+        if not english:
+            return err("Al menos una palabra en inglés")
+
+        exists = db_fetchone(
+            "SELECT id FROM word_groups WHERE id = %s AND user_id = %s", (gid, uid)
+        )
+        if not exists:
+            return err("Grupo no encontrado", 404)
+        dup = db_fetchone(
+            "SELECT id FROM word_groups WHERE user_id = %s AND spanish = %s AND id != %s LIMIT 1",
+            (uid, spanish, gid),
+        )
+        if dup:
+            return err(f'Ya existe "{spanish}" en otro grupo', 409)
+
+        conn = get_db()
+        conn.begin()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE word_groups SET spanish = %s WHERE id = %s", (spanish, gid))
+                cur.execute("DELETE FROM words WHERE group_id = %s", (gid,))
+                for i, en in enumerate(english):
+                    diff = difficulties[i] if i < len(difficulties) and difficulties[i] in ("normal", "hard") else "normal"
+                    cur.execute(
+                        "INSERT INTO words (group_id, english, is_hard) VALUES (%s, %s, %s)",
+                        (gid, en, 1 if diff == "hard" else 0),
+                    )
+            conn.commit()
+            return ok({"group_id": gid})
+        except Exception as e:
+            conn.rollback()
+            return err(f"Error al editar: {e}", 500)
+
+    # GET ?action=stats
+    if method == "GET" and action == "stats":
+        d = request.args.get("date", str(date.today()))
+        row = db_fetchone(
+            "SELECT COUNT(*) AS total_attempts, SUM(correct) AS correct_count FROM practice_log WHERE user_id = %s AND DATE(created_at) = %s",
+            (uid, d),
+        )
+        return ok(row)
+
+    # GET ?action=streak
+    if method == "GET" and action == "streak":
+        days = [r["created_at"] for r in db_fetchall(
+            "SELECT created_at FROM word_groups WHERE user_id = %s GROUP BY created_at ORDER BY created_at DESC",
+            (uid,),
+        )]
+        days = [str(d) for d in days]
+
+        streak = 0
+        check = str(date.today())
+        for day in days:
+            if day == check:
+                streak += 1
+                prev = date.fromisoformat(check) - timedelta(days=1)
+                check = str(prev)
+            elif day < check:
+                break
+
+        best = 0
+        current = 1
+        for i in range(1, len(days)):
+            diff = (date.fromisoformat(days[i - 1]) - date.fromisoformat(days[i])).days
+            if diff == 1:
+                current += 1
+                best = max(best, current)
+            else:
+                current = 1
+        best = max(best, streak)
+        return ok({"streak": streak, "best": best})
+
+    # GET ?action=word_accuracy
+    if method == "GET" and action == "word_accuracy":
+        rows = db_fetchall(
+            """SELECT pl.group_id, g.spanish,
+                      GROUP_CONCAT(w.english ORDER BY w.id SEPARATOR '||') AS english_words,
+                      COUNT(*) AS total,
+                      SUM(pl.correct) AS correct_count,
+                      ROUND(SUM(pl.correct) * 100.0 / COUNT(*), 0) AS accuracy
+               FROM practice_log pl
+               JOIN word_groups g ON g.id = pl.group_id
+               JOIN words w ON w.group_id = pl.group_id
+               WHERE pl.user_id = %s
+               GROUP BY pl.group_id, g.spanish
+               HAVING total >= 3
+               ORDER BY accuracy ASC, total DESC
+               LIMIT 50""",
+            (uid,),
+        )
+        for r in rows:
+            r["english_words"] = _split(r["english_words"])
+        return ok(rows)
+
+    # POST ?action=hint
+    if method == "POST" and action == "hint":
+        b = body()
+        prompt = b.get("prompt", "").strip()
+        if not prompt:
+            return err("prompt requerido")
+        raw = groq_call(prompt, 500)
+        if not raw:
+            return err("No se pudo generar la pista", 503)
+        return ok({"hint": raw.strip()})
+
+    return err("Acción no válida")
