@@ -5,7 +5,7 @@ import json
 import secrets
 from datetime import date
 from flask import Blueprint, request, g
-from api.config import (
+from config import (
     ok, err, body, db_exec, db_fetchall, db_fetchone,
     db_insert, db_update, APP_URL, require_auth
 )
@@ -71,7 +71,7 @@ def share():
         return ok({"packs": packs, "categories": cats})
 
     # ── Auth-required endpoints ──────────────────────────────────────────────
-    from api.config import get_uid
+    from config import get_uid
     uid = get_uid()
     if uid is None and action in ("create", "import", "mine", "delete"):
         return err("No autenticado", 401)
@@ -157,7 +157,7 @@ def share():
         skipped = 0
         group_ids = []
 
-        from api.config import get_db
+        from config import get_db
         conn = get_db()
         conn.begin()
         try:

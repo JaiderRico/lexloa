@@ -4,7 +4,7 @@ stats.py — Estadísticas + Export/Import (PostgreSQL)
 import json
 from datetime import date, timedelta
 from flask import Blueprint, request, g, Response
-from api.config import (
+from config import (
     ok, err, body, db_fetchall, db_fetchone,
     db_exec, db_update, require_auth, get_db
 )

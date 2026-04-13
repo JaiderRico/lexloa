@@ -6,7 +6,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import date
 from flask import Blueprint, request, g
-from api.config import (
+from config import (
     ok, err, body, db_fetchone, db_exec, db_update,
     SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM, SMTP_PORT, APP_URL,
     NOTIFY_SECRET, require_auth
@@ -131,14 +131,14 @@ def send_due():
     if secret != NOTIFY_SECRET:
         return "", 403
 
-    from api.config import db_fetchall, db_update
+    from config import db_fetchall, db_update
     hour = date.today().timetuple().tm_hour
 
-    from api.config import get_db
+    from config import get_db
     # Need to init g.db without require_auth
     from flask import g
     if not hasattr(g, "db"):
-        from api.config import get_db
+        from config import get_db
         get_db()
 
     rows = db_fetchall(

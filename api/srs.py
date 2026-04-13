@@ -3,7 +3,7 @@ srs.py — Spaced Repetition System (PostgreSQL)
 """
 from datetime import date, timedelta
 from flask import Blueprint, request, g
-from api.config import (
+from config import (
     ok, err, body, db_exec, db_fetchall, db_fetchone,
     db_insert, db_update, require_auth
 )

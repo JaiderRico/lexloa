@@ -3,7 +3,7 @@ auth.py — Registro · Login · Logout · Me (PostgreSQL)
 """
 import re
 from flask import Blueprint, request, g
-from api.config import (
+from config import (
     ok, err, body, db_exec, db_fetchone, db_insert,
     make_token, get_uid, get_db
 )
