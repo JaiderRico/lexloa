@@ -128,8 +128,13 @@ def body() -> dict:
 
 # ── Autenticación ────────────────────────────────────────────────────────────
 def get_uid() -> int | None:
+    # Leer Authorization: Bearer <token>
+    auth_header = request.headers.get("Authorization", "")
+    bearer_token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+
     token = (
-        request.args.get("_t", "")
+        bearer_token                              # ← agregar esto
+        or request.args.get("_t", "")
         or request.headers.get("X-Session-Token", "")
         or request.cookies.get("lexlo_token", "")
     )
