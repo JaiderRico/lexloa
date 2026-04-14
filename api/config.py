@@ -13,6 +13,12 @@ import psycopg2
 import psycopg2.extras
 from flask import request, jsonify, g
 from dotenv import load_dotenv
+import pytz
+
+def today_col():
+    """Fecha actual en zona horaria Colombia (UTC-5)"""
+    tz = pytz.timezone("America/Bogota")
+    return datetime.now(tz).date()
 
 load_dotenv()
 

@@ -7,7 +7,7 @@ from datetime import date
 from flask import Blueprint, request, g
 from config import (
     ok, err, body, db_exec, db_fetchall, db_fetchone,
-    db_insert, db_update, APP_URL, require_auth
+    db_insert, db_update, APP_URL, require_auth, get_db
 )
 
 share_bp = Blueprint("share", __name__)
@@ -50,7 +50,7 @@ def share():
                 """SELECT sp.token, sp.label, COALESCE(sp.category,'') AS category,
                           sp.word_count, sp.import_count, u.username AS owner
                    FROM shared_packs sp JOIN users u ON u.id = sp.user_id
-                   WHERE COALESCE(sp.is_public,0) = 1 AND sp.category = %s
+                   WHERE sp.is_public = TRUE AND sp.category = %s
                    ORDER BY sp.import_count DESC, sp.created_at DESC LIMIT 50""",
                 (cat,),
             )
@@ -59,12 +59,12 @@ def share():
                 """SELECT sp.token, sp.label, COALESCE(sp.category,'') AS category,
                           sp.word_count, sp.import_count, u.username AS owner
                    FROM shared_packs sp JOIN users u ON u.id = sp.user_id
-                   WHERE COALESCE(sp.is_public,0) = 1
-                   ORDER BY sp.import_count DESC, sp.created_at DESC LIMIT 50""",
+                   WHERE sp.is_public = TRUE
+                   ORDER BY sp.import_count DESC, sp.created_at DESC LIMIT 50"""
             )
         try:
             cats = [r["category"] for r in db_fetchall(
-                "SELECT DISTINCT category FROM shared_packs WHERE COALESCE(is_public,0)=1 AND category != '' ORDER BY category"
+                "SELECT DISTINCT category FROM shared_packs WHERE is_public = TRUE AND category != '' ORDER BY category"
             )]
         except Exception:
             cats = []
@@ -81,7 +81,7 @@ def share():
         b = body()
         label = b.get("label", "").strip()
         category = b.get("category", "").strip()
-        is_public = int(bool(b.get("is_public", False)))
+        is_public = bool(b.get("is_public", False))
         group_ids = b.get("group_ids", [])
         date_val = b.get("date")
         dates = b.get("dates", [])
@@ -91,38 +91,52 @@ def share():
             dates = [date_val]
 
         words = []
+
         if words_direct:
             for w in words_direct:
                 sp = w.get("spanish", "").strip()
                 en = [e.strip() for e in (w.get("english") or []) if str(e).strip()]
                 if sp and en:
                     words.append({"spanish": sp, "english": en})
+
         elif group_ids:
             ph = ",".join(["%s"] * len(group_ids))
             rows = db_fetchall(
                 f"""SELECT g.id, g.spanish,
-                           GROUP_CONCAT(w.english ORDER BY w.id SEPARATOR '||') AS english_words
+                           STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words
                     FROM word_groups g JOIN words w ON w.group_id = g.id
                     WHERE g.user_id = %s AND g.id IN ({ph})
-                    GROUP BY g.id""",
+                    GROUP BY g.id, g.spanish""",
                 tuple([uid] + group_ids),
             )
             for r in rows:
                 words.append({"spanish": r["spanish"], "english": r["english_words"].split("||")})
+
         elif dates:
             ph = ",".join(["%s"] * len(dates))
             rows = db_fetchall(
                 f"""SELECT g.id, g.spanish,
-                           GROUP_CONCAT(w.english ORDER BY w.id SEPARATOR '||') AS english_words
+                           STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words
                     FROM word_groups g JOIN words w ON w.group_id = g.id
-                    WHERE g.user_id = %s AND DATE(g.created_at) IN ({ph})
-                    GROUP BY g.id""",
+                    WHERE g.user_id = %s AND g.created_at IN ({ph})
+                    GROUP BY g.id, g.spanish""",
                 tuple([uid] + dates),
             )
             for r in rows:
                 words.append({"spanish": r["spanish"], "english": r["english_words"].split("||")})
+
         else:
-            return err("Debes especificar group_ids, date, dates o _words_direct")
+            # Todas las palabras del usuario
+            rows = db_fetchall(
+                """SELECT g.id, g.spanish,
+                          STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words
+                   FROM word_groups g JOIN words w ON w.group_id = g.id
+                   WHERE g.user_id = %s
+                   GROUP BY g.id, g.spanish""",
+                (uid,),
+            )
+            for r in rows:
+                words.append({"spanish": r["spanish"], "english": r["english_words"].split("||")})
 
         if not words:
             return err("No hay palabras para compartir")
@@ -131,7 +145,7 @@ def share():
 
         token = secrets.token_hex(16)
         db_insert(
-            "INSERT INTO shared_packs (token, user_id, label, category, is_public, words_json, word_count) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            "INSERT INTO shared_packs (token, user_id, label, category, is_public, words_json, word_count) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (token, uid, label, category, is_public, json.dumps(words, ensure_ascii=False), len(words)),
         )
         return ok({
@@ -139,7 +153,7 @@ def share():
             "word_count": len(words),
             "label": label,
             "category": category,
-            "is_public": bool(is_public),
+            "is_public": is_public,
             "url": f"{APP_URL}/?share={token}",
         })
 
@@ -157,9 +171,8 @@ def share():
         skipped = 0
         group_ids = []
 
-        from config import get_db
         conn = get_db()
-        conn.begin()
+        conn.autocommit = False
         try:
             for w in words:
                 spanish = w.get("spanish", "").strip()
@@ -176,21 +189,23 @@ def share():
                     continue
                 with conn.cursor() as cur:
                     cur.execute(
-                        "INSERT INTO word_groups (user_id, spanish, created_at) VALUES (%s, %s, NOW())",
+                        "INSERT INTO word_groups (user_id, spanish, created_at) VALUES (%s, %s, CURRENT_DATE) RETURNING id",
                         (uid, spanish),
                     )
-                    gid = cur.lastrowid
+                    gid = cur.fetchone()["id"]
                     group_ids.append(int(gid))
                     for en in english:
                         cur.execute(
-                            "INSERT INTO words (group_id, english, is_hard) VALUES (%s, %s, 0)",
+                            "INSERT INTO words (group_id, english, is_hard) VALUES (%s, %s, FALSE)",
                             (gid, en),
                         )
                 added += 1
             conn.commit()
+            conn.autocommit = True
             db_update("UPDATE shared_packs SET import_count = import_count + 1 WHERE token = %s", (token,))
         except Exception as e:
             conn.rollback()
+            conn.autocommit = True
             return err(f"Error al importar: {e}", 500)
 
         return ok({"added": added, "skipped": skipped, "group_ids": group_ids})
@@ -199,7 +214,7 @@ def share():
     if method == "GET" and action == "mine":
         rows = db_fetchall(
             """SELECT token, label, COALESCE(category,'') AS category,
-                      COALESCE(is_public,0) AS is_public, word_count, import_count, created_at
+                      is_public, word_count, import_count, created_at
                FROM shared_packs WHERE user_id = %s ORDER BY created_at DESC LIMIT 20""",
             (uid,),
         )
