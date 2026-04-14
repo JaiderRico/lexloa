@@ -1,26 +1,197 @@
 """
-DIFF para stats.py
-Agrega dos nuevos actions al endpoint /stats:
-
-  1. GET/POST  action=import_preview   → filtra duplicados y devuelve lista para revisar
-  2. POST      action=add_single       → agrega una sola palabra confirmada por el usuario
-
-También agrega action=import_preview a share.py para el flujo de token.
+stats.py — Estadísticas del usuario (PostgreSQL)
 """
+import re
+from datetime import date
+from flask import Blueprint, request, g
+from config import (
+    ok, err, body, db_exec, db_fetchall, db_fetchone,
+    db_insert, db_update, require_auth, get_db
+)
 
-# ── Pega estos bloques DENTRO del if/elif chain de stats() ─────────────────
+stats_bp = Blueprint("stats", __name__)
 
-# ★ NUEVO action: import_preview (POST)
-# Recibe el mismo payload que "import" pero NO inserta nada.
-# Solo filtra duplicados y devuelve la lista limpia para que el usuario revise.
 
+def _split(val):
+    return val.split("||") if val else []
+
+
+@stats_bp.route("/stats", methods=["GET", "POST", "OPTIONS"])
+@require_auth
+def stats():
+    if request.method == "OPTIONS":
+        return "", 204
+
+    uid = g.uid
+    method = request.method
+    action = request.args.get("action", "")
+
+    # ── GET action=full_summary ──────────────────────────────────────────────
+    if method == "GET" and action == "full_summary":
+        total = db_fetchone(
+            "SELECT COUNT(*) AS total FROM word_groups WHERE user_id = %s", (uid,)
+        )
+        streaks = db_fetchall(
+            """SELECT practice_date FROM practice_log
+               WHERE user_id = %s ORDER BY practice_date DESC""",
+            (uid,),
+        )
+        current_streak = 0
+        best_streak = 0
+        if streaks:
+            streak = 1
+            prev = streaks[0]["practice_date"]
+            for row in streaks[1:]:
+                d = row["practice_date"]
+                if (prev - d).days == 1:
+                    streak += 1
+                else:
+                    best_streak = max(best_streak, streak)
+                    streak = 1
+                prev = d
+            best_streak = max(best_streak, streak)
+            today = date.today()
+            current_streak = streak if (today - streaks[0]["practice_date"]).days <= 1 else 0
+
+        acc = db_fetchone(
+            """SELECT COALESCE(SUM(correct),0) AS total_correct,
+                      COALESCE(SUM(attempts),0) AS total_attempts
+               FROM word_srs WHERE user_id = %s""",
+            (uid,),
+        )
+        return ok({
+            "total_words":    int(total["total"]) if total else 0,
+            "current_streak": current_streak,
+            "best_streak":    best_streak,
+            "total_correct":  int(acc["total_correct"]) if acc else 0,
+            "total_attempts": int(acc["total_attempts"]) if acc else 0,
+            "days_practiced": len(streaks),
+        })
+
+    # ── GET action=srs_overview ──────────────────────────────────────────────
+    if method == "GET" and action == "srs_overview":
+        today = str(date.today())
+        due = db_fetchone(
+            """SELECT COUNT(*) AS n FROM word_srs
+               WHERE user_id = %s AND next_review <= %s""",
+            (uid, today),
+        )
+        new_w = db_fetchone(
+            """SELECT COUNT(*) AS n FROM word_groups g
+               LEFT JOIN word_srs s ON s.group_id = g.id AND s.user_id = g.user_id
+               WHERE g.user_id = %s AND (s.attempts IS NULL OR s.attempts = 0)""",
+            (uid,),
+        )
+        learning = db_fetchone(
+            """SELECT COUNT(*) AS n FROM word_srs
+               WHERE user_id = %s AND interval < 21 AND attempts > 0""",
+            (uid,),
+        )
+        mature = db_fetchone(
+            """SELECT COUNT(*) AS n FROM word_srs
+               WHERE user_id = %s AND interval >= 21""",
+            (uid,),
+        )
+        return ok({
+            "due_today": int(due["n"]) if due else 0,
+            "new_words": int(new_w["n"]) if new_w else 0,
+            "learning":  int(learning["n"]) if learning else 0,
+            "mature":    int(mature["n"]) if mature else 0,
+        })
+
+    # ── GET action=mode_breakdown ────────────────────────────────────────────
+    if method == "GET" and action == "mode_breakdown":
+        rows = db_fetchall(
+            """SELECT mode,
+                      COALESCE(SUM(correct),0)  AS correct,
+                      COALESCE(SUM(attempts),0) AS attempts
+               FROM practice_answers
+               WHERE user_id = %s
+               GROUP BY mode""",
+            (uid,),
+        )
+        return ok(rows)
+
+    # ── GET action=word_progress ─────────────────────────────────────────────
+    if method == "GET" and action == "word_progress":
+        f = request.args.get("filter", "all")
+        today = str(date.today())
+
+        if f == "due":
+            extra = "AND (s.next_review IS NULL OR s.next_review <= %s)"
+            params = (uid, today)
+        elif f == "new":
+            extra = "AND (s.attempts IS NULL OR s.attempts = 0)"
+            params = (uid,)
+        else:  # "all"
+            extra = ""
+            params = (uid,)
+
+        rows = db_fetchall(
+            f"""SELECT g.id AS group_id, g.spanish,
+                       STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words,
+                       COALESCE(s.next_review::text, '')  AS next_review,
+                       COALESCE(s.interval, 1)            AS interval,
+                       COALESCE(s.ease_factor, 2.5)       AS ease_factor,
+                       COALESCE(s.correct, 0)             AS correct,
+                       COALESCE(s.attempts, 0)            AS attempts
+                FROM word_groups g
+                JOIN words w ON w.group_id = g.id
+                LEFT JOIN word_srs s ON s.group_id = g.id AND s.user_id = g.user_id
+                WHERE g.user_id = %s {extra}
+                GROUP BY g.id, g.spanish, s.next_review, s.interval, s.ease_factor, s.correct, s.attempts
+                ORDER BY g.created_at DESC
+                LIMIT 200""",
+            params,
+        )
+        for r in rows:
+            r["english_words"] = _split(r["english_words"])
+        return ok(rows)
+
+    # ── GET action=export ────────────────────────────────────────────────────
+    if method == "GET" and action == "export":
+        rows = db_fetchall(
+            """SELECT g.spanish, g.created_at,
+                      STRING_AGG(w.english, '||' ORDER BY w.id)       AS english_words,
+                      STRING_AGG(w.is_hard::text, '||' ORDER BY w.id) AS english_diffs
+               FROM word_groups g
+               JOIN words w ON w.group_id = g.id
+               WHERE g.user_id = %s
+               GROUP BY g.id, g.spanish, g.created_at
+               ORDER BY g.created_at DESC""",
+            (uid,),
+        )
+        words = []
+        for r in rows:
+            eng_words = _split(r["english_words"])
+            eng_diffs = _split(r.get("english_diffs") or "")
+            english = [
+                {
+                    "word": w.strip(),
+                    "difficulty": "hard" if eng_diffs[i] in ("true", "t") else "normal",
+                }
+                for i, w in enumerate(eng_words)
+                if w.strip()
+            ]
+            words.append({
+                "spanish":    r["spanish"],
+                "english":    english,
+                "created_at": str(r["created_at"]),
+            })
+        from flask import jsonify, make_response
+        import json
+        resp = make_response(json.dumps({"version": 2, "words": words}, ensure_ascii=False, indent=2))
+        resp.headers["Content-Type"] = "application/json; charset=utf-8"
+        resp.headers["Content-Disposition"] = "attachment; filename=lexlo_export.json"
+        return resp
+
+    # ── POST action=import_preview ───────────────────────────────────────────
     if method == "POST" and action == "import_preview":
         b = body()
         data = b.get("data")
         if not data or not data.get("words"):
             return err("Datos de importación inválidos")
 
-        import re
         words_to_review = []
         duplicates = 0
 
@@ -29,10 +200,9 @@ También agrega action=import_preview a share.py para el flujo de token.
             if not spanish:
                 duplicates += 1
                 continue
-            # Verificar si ya existe
             dup = db_fetchone(
                 "SELECT id FROM word_groups WHERE user_id = %s AND spanish = %s LIMIT 1",
-                (uid, spanish)
+                (uid, spanish),
             )
             if dup:
                 duplicates += 1
@@ -55,17 +225,14 @@ También agrega action=import_preview a share.py para el flujo de token.
             created_at = created_at[:10]
 
             words_to_review.append({
-                "spanish": spanish,
-                "english": english,
-                "created_at": created_at
+                "spanish":    spanish,
+                "english":    english,
+                "created_at": created_at,
             })
 
         return ok({"words": words_to_review, "duplicates": duplicates})
 
-
-# ★ NUEVO action: add_single (POST)
-# Agrega una sola palabra que el usuario ya confirmó escribiendo.
-
+    # ── POST action=add_single ───────────────────────────────────────────────
     if method == "POST" and action == "add_single":
         b = body()
         spanish = b.get("spanish", "").strip().lower()
@@ -75,13 +242,11 @@ También agrega action=import_preview a share.py para el flujo de token.
         if not spanish or not english_list:
             return err("Datos incompletos")
 
-        import re
         created_at = created_at_raw[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", created_at_raw) else str(date.today())
 
-        # Verificar duplicado de último momento
         dup = db_fetchone(
             "SELECT id FROM word_groups WHERE user_id = %s AND spanish = %s LIMIT 1",
-            (uid, spanish)
+            (uid, spanish),
         )
         if dup:
             return ok({"id": dup["id"], "skipped": True})
@@ -92,7 +257,7 @@ También agrega action=import_preview a share.py para el flujo de token.
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO word_groups (user_id, spanish, created_at) VALUES (%s, %s, %s) RETURNING id",
-                    (uid, spanish, created_at)
+                    (uid, spanish, created_at),
                 )
                 gid = cur.fetchone()["id"]
                 for en in english_list:
@@ -101,7 +266,7 @@ También agrega action=import_preview a share.py para el flujo de token.
                     if word:
                         cur.execute(
                             "INSERT INTO words (group_id, english, is_hard) VALUES (%s, %s, %s)",
-                            (gid, word, diff == "hard")
+                            (gid, word, diff == "hard"),
                         )
             conn.commit()
             conn.autocommit = True
@@ -112,67 +277,4 @@ También agrega action=import_preview a share.py para el flujo de token.
 
         return ok({"id": gid})
 
-
-# ── share.py: agrega import_preview para el flujo de token ─────────────────
-# En el Blueprint de share, agrega este endpoint GET:
-
-# @share_bp.route("/share", methods=["GET"])
-# @require_auth
-# def share_import_preview():
-#     action = request.args.get("action", "")
-#     uid = g.uid
-#
-#     if action == "import_preview":
-#         token = request.args.get("token", "").strip()
-#         if not token:
-#             return err("Token requerido")
-#
-#         pack = db_fetchone(
-#             "SELECT id FROM word_packs WHERE token = %s",
-#             (token,)
-#         )
-#         if not pack:
-#             return err("Paquete no encontrado", 404)
-#
-#         pack_id = pack["id"]
-#         rows = db_fetchall(
-#             """SELECT g.spanish, g.created_at,
-#                       STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words,
-#                       STRING_AGG(w.is_hard::text, '||' ORDER BY w.id) AS english_diffs
-#                FROM pack_words pw
-#                JOIN word_groups g ON g.id = pw.word_group_id
-#                JOIN words w ON w.group_id = g.id
-#                WHERE pw.pack_id = %s
-#                GROUP BY g.id, g.spanish, g.created_at""",
-#             (pack_id,)
-#         )
-#
-#         words_to_review = []
-#         duplicates = 0
-#         for r in rows:
-#             spanish = r["spanish"].strip().lower()
-#             dup = db_fetchone(
-#                 "SELECT id FROM word_groups WHERE user_id = %s AND spanish = %s LIMIT 1",
-#                 (uid, spanish)
-#             )
-#             if dup:
-#                 duplicates += 1
-#                 continue
-#             wlist = r["english_words"].split("||") if r["english_words"] else []
-#             diffs = r["english_diffs"].split("||") if r.get("english_diffs") else []
-#             english = [
-#                 {"word": w.strip().lower(), "difficulty": "hard" if diffs[i] in ("true","t") else "normal"}
-#                 for i, w in enumerate(wlist) if w.strip()
-#             ]
-#             if not english:
-#                 duplicates += 1
-#                 continue
-#             words_to_review.append({
-#                 "spanish": spanish,
-#                 "english": english,
-#                 "created_at": str(r["created_at"])
-#             })
-#
-#         return ok({"words": words_to_review, "duplicates": duplicates})
-#
-#     return err("Acción no válida", 400)
+    return err("Acción no válida", 400)
