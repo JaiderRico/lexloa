@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from flask import Blueprint, request, g
 from config import (
     ok, err, body, db_exec, db_fetchall, db_fetchone,
-    db_insert, db_update, groq_call, parse_groq_json, require_auth, get_db
+    db_insert, db_update, groq_call, parse_groq_json, require_auth, get_db,today_col
 )
 
 practice_bp = Blueprint("practice", __name__)
