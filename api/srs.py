@@ -20,7 +20,7 @@ def srs():
     uid = g.uid
     method = request.method
     action = request.args.get("action", "")
-    today = str(date.today())
+    today = str(today_col())
 
     # GET ?action=due
     if method == "GET" and action == "due":
@@ -81,7 +81,7 @@ def srs():
             reps = 0; interval = 1; ef = max(1.3, ef - 0.2)
 
         interval = min(365, max(1, interval))
-        next_review = str(date.today() + timedelta(days=interval))
+        next_review = str(today_col() + timedelta(days=interval))
         mastered = interval >= 21 and quality == 5
 
         db_update(
@@ -132,7 +132,7 @@ def srs():
 
         forecast = []
         for i in range(7):
-            day = str(date.today() + timedelta(days=i))
+            day = str(today_col() + timedelta(days=i))
             cnt = db_fetchone("SELECT COUNT(*) AS cnt FROM word_srs WHERE user_id = %s AND next_review = %s AND mastered = FALSE", (uid, day))
             forecast.append({"date": day, "count": int(cnt["cnt"]) if cnt else 0})
 

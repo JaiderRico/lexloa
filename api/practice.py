@@ -37,11 +37,11 @@ def srs_update(uid: int, group_id: int, correct: bool):
             ef = max(1.3, ef - 0.2)
 
         interval = min(365, max(1, interval))
-        next_review = str(date.today() + timedelta(days=interval))
+        next_review = str(today_col() + timedelta(days=interval))
         mastered = interval >= 21 and correct
         db_update(
             "UPDATE word_srs SET easiness=%s, interval_days=%s, repetitions=%s, next_review=%s, last_review=%s, mastered=%s WHERE user_id=%s AND group_id=%s",
-            (ef, interval, reps, next_review, str(date.today()), mastered, uid, group_id),
+            (ef, interval, reps, next_review, str(today_col()), mastered, uid, group_id),
         )
     except Exception:
         pass
@@ -98,7 +98,7 @@ def practice():
             raw_dates = [d.strip() for d in request.args.get("dates", "").split(",")]
             dates = [d for d in raw_dates if re.match(r"^\d{4}-\d{2}-\d{2}$", d)]
         else:
-            dates = [request.args.get("date", str(date.today()))]
+            dates = [request.args.get("date", str(today_col()))]
 
         if not dates:
             return err("Fechas inválidas", 400)
@@ -284,7 +284,7 @@ def practice():
 
     # GET ?action=stats
     if method == "GET" and action == "stats":
-        d = request.args.get("date", str(date.today()))
+        d = request.args.get("date", str(today_col()))
         row = db_fetchone(
             "SELECT COUNT(*) AS total_attempts, SUM(correct::int) AS correct_count FROM practice_log WHERE user_id = %s AND DATE(created_at) = %s",
             (uid, d),
@@ -297,7 +297,7 @@ def practice():
             "SELECT created_at FROM word_groups WHERE user_id = %s GROUP BY created_at ORDER BY created_at DESC", (uid,)
         )]
         streak = 0
-        check = str(date.today())
+        check = str(today_col())
         for day in days:
             if day == check:
                 streak += 1
