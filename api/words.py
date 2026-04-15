@@ -156,9 +156,10 @@ def words():
         else:
             where = "(g.spanish ILIKE %s OR w.english ILIKE %s)"
             params = (uid, like, like)
-        rows = db_fetchall(
-            f"""SELECT DISTINCT g.id, g.spanish, g.created_at,
-                       STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words
+            rows = db_fetchall(
+                f"""SELECT DISTINCT g.id, g.spanish, g.created_at,
+                COALESCE(g.example_sentence, '') AS example_sentence,
+                STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words
                 FROM word_groups g
                 JOIN words w ON w.group_id = g.id
                 WHERE g.user_id = %s AND {where}
