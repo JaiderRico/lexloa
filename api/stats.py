@@ -3,11 +3,12 @@ stats.py — Estadísticas del usuario (PostgreSQL)
 """
 import re
 from datetime import date
-from flask import Blueprint, request, g
+from flask import Blueprint, request, g, jsonify, make_response
 from config import (
     ok, err, body, db_exec, db_fetchall, db_fetchone,
     db_insert, db_update, require_auth, get_db
 )
+import json
 
 stats_bp = Blueprint("stats", __name__)
 
@@ -31,11 +32,14 @@ def stats():
         total = db_fetchone(
             "SELECT COUNT(*) AS total FROM word_groups WHERE user_id = %s", (uid,)
         )
+        
+        # Calcular streaks solo si hay práctica
         streaks = db_fetchall(
             """SELECT practice_date FROM practice_log
                WHERE user_id = %s ORDER BY practice_date DESC""",
             (uid,),
         )
+        
         current_streak = 0
         best_streak = 0
         if streaks:
@@ -59,13 +63,15 @@ def stats():
                FROM word_srs WHERE user_id = %s""",
             (uid,),
         )
+        
+        # Siempre devolver ok=True, incluso con datos vacíos
         return ok({
-            "total_words":    int(total["total"]) if total else 0,
+            "total_words":    int(total["total"]) if total and total["total"] else 0,
             "current_streak": current_streak,
             "best_streak":    best_streak,
             "total_correct":  int(acc["total_correct"]) if acc else 0,
             "total_attempts": int(acc["total_attempts"]) if acc else 0,
-            "days_practiced": len(streaks),
+            "days_practiced": len(streaks) if streaks else 0,
         })
 
     # ── GET action=srs_overview ──────────────────────────────────────────────
@@ -92,6 +98,8 @@ def stats():
                WHERE user_id = %s AND interval >= 21""",
             (uid,),
         )
+        
+        # Siempre devolver ok=True
         return ok({
             "due_today": int(due["n"]) if due else 0,
             "new_words": int(new_w["n"]) if new_w else 0,
@@ -110,7 +118,7 @@ def stats():
                GROUP BY mode""",
             (uid,),
         )
-        return ok(rows)
+        return ok(rows if rows else [])
 
     # ── GET action=word_progress ─────────────────────────────────────────────
     if method == "GET" and action == "word_progress":
@@ -144,9 +152,12 @@ def stats():
                 LIMIT 200""",
             params,
         )
+        
+        # Siempre devolver una lista (puede estar vacía)
         for r in rows:
             r["english_words"] = _split(r["english_words"])
-        return ok(rows)
+        
+        return ok(rows if rows else [])
 
     # ── GET action=export ────────────────────────────────────────────────────
     if method == "GET" and action == "export":
@@ -178,8 +189,7 @@ def stats():
                 "english":    english,
                 "created_at": str(r["created_at"]),
             })
-        from flask import jsonify, make_response
-        import json
+        
         resp = make_response(json.dumps({"version": 2, "words": words}, ensure_ascii=False, indent=2))
         resp.headers["Content-Type"] = "application/json; charset=utf-8"
         resp.headers["Content-Disposition"] = "attachment; filename=lexlo_export.json"
@@ -291,7 +301,7 @@ def stats():
                ORDER BY DATE(created_at)""",
             (uid, months),
         )
-        return ok(rows)
+        return ok(rows if rows else [])
 
     # ── GET action=session_history ───────────────────────────────────────────
     if method == "GET" and action == "session_history":
@@ -319,6 +329,6 @@ def stats():
             r["accuracy_pct"] = int(r["accuracy_pct"]) if r["accuracy_pct"] else 0
             r["total"] = int(r["total"]) if r["total"] else 0
             r["correct"] = int(r["correct"]) if r["correct"] else 0
-        return ok(rows)
+        return ok(rows if rows else [])
 
     return err("Acción no válida", 400)
