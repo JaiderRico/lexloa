@@ -277,4 +277,48 @@ def stats():
 
         return ok({"id": gid})
 
+    # ── GET action=heatmap ───────────────────────────────────────────────────
+    if method == "GET" and action == "heatmap":
+        months = max(1, min(12, int(request.args.get("months", 6))))
+        rows = db_fetchall(
+            """SELECT DATE(created_at)::text AS date,
+                      COALESCE(SUM(correct::int), 0) AS correct,
+                      COUNT(*) AS attempts
+               FROM practice_log
+               WHERE user_id = %s
+                 AND created_at >= CURRENT_DATE - (%s * INTERVAL '30 days')
+               GROUP BY DATE(created_at)
+               ORDER BY DATE(created_at)""",
+            (uid, months),
+        )
+        return ok(rows)
+
+    # ── GET action=session_history ───────────────────────────────────────────
+    if method == "GET" and action == "session_history":
+        days = max(1, min(90, int(request.args.get("days", 30))))
+        rows = db_fetchall(
+            """SELECT session_date::text AS date,
+                      ROUND(100.0 * SUM(correct) / NULLIF(SUM(total), 0)) AS accuracy_pct,
+                      SUM(total) AS total,
+                      SUM(correct) AS correct,
+                      json_agg(json_build_object(
+                          'mode', practice_mode,
+                          'total', total,
+                          'correct', correct,
+                          'duration_secs', duration_secs
+                      ) ORDER BY id) AS modes
+               FROM session_history
+               WHERE user_id = %s
+                 AND session_date >= CURRENT_DATE - %s * INTERVAL '1 day'
+               GROUP BY session_date
+               ORDER BY session_date DESC
+               LIMIT 60""",
+            (uid, days),
+        )
+        for r in rows:
+            r["accuracy_pct"] = int(r["accuracy_pct"]) if r["accuracy_pct"] else 0
+            r["total"] = int(r["total"]) if r["total"] else 0
+            r["correct"] = int(r["correct"]) if r["correct"] else 0
+        return ok(rows)
+
     return err("Acción no válida", 400)

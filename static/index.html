@@ -663,7 +663,7 @@ nav{ display:flex; align-items:center; border-bottom:1px solid var(--border); ba
   <div id="search-panel">
     <div class="search-bar">
       <input class="inp" id="search-inp" placeholder="Escribe para buscar..." autocomplete="off"
-             onkeydown="if(event.key==='Enter') doSearch()" />
+             onkeydown="if(event.key==='Enter'){event.preventDefault();doSearch();}" />
       <select class="inp" id="search-lang" style="width:128px;">
         <option value="both">Ambos idiomas</option>
         <option value="es">Solo español</option>
