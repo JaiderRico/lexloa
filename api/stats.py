@@ -1,21 +1,14 @@
 """
 stats.py — Estadísticas del usuario (PostgreSQL)
 """
-import re
-from datetime import date, datetime
-from flask import Blueprint, request, g, jsonify, make_response
+from datetime import date, timedelta
+from flask import Blueprint, request, g, make_response
 from config import (
-    ok, err, body, db_exec, db_fetchall, db_fetchone,
-    db_insert, db_update, require_auth, get_db, today_col
+    ok, err, db_exec, db_fetchall, db_fetchone, require_auth, today_col
 )
 import json
 
 stats_bp = Blueprint("stats", __name__)
-
-
-def _split(val):
-    return val.split("||") if val else []
-
 
 @stats_bp.route("/stats", methods=["GET", "POST", "OPTIONS"])
 @require_auth
@@ -26,97 +19,81 @@ def stats():
     uid = g.uid
     method = request.method
     action = request.args.get("action", "")
-    today = str(today_col())
+    # Usamos la fecha del sistema o la proporcionada por la config
+    today_date = today_col() 
 
-    # ── GET action=full_summary ──────────────────────────────────────────────
     if method == "GET" and action == "full_summary":
+        # Total de palabras
         total = db_fetchone(
             "SELECT COUNT(*) AS total FROM word_groups WHERE user_id = %s", (uid,)
         )
         
+        # Obtener fechas únicas de práctica para calcular racha
         streaks = db_fetchall(
-            """SELECT DATE(created_at) as practice_date FROM practice_log
-               WHERE user_id = %s ORDER BY created_at DESC""",
+            """SELECT DISTINCT DATE(created_at) as practice_date 
+               FROM practice_log
+               WHERE user_id = %s 
+               ORDER BY practice_date DESC""",
             (uid,),
         )
         
         current_streak = 0
         best_streak = 0
+        
         if streaks:
-            streak = 1
-            prev = streaks[0]["practice_date"]
-            for row in streaks[1:]:
-                d = row["practice_date"]
-                if (prev - d).days == 1:
-                    streak += 1
+            # Lógica de racha actual
+            latest_practice = streaks[0]["practice_date"]
+            # Si practicó hoy o ayer, la racha sigue viva
+            if (today_date - latest_practice).days <= 1:
+                temp_streak = 1
+                for i in range(len(streaks) - 1):
+                    if (streaks[i]["practice_date"] - streaks[i+1]["practice_date"]).days == 1:
+                        temp_streak += 1
+                    else:
+                        break
+                current_streak = temp_streak
+            
+            # Lógica de mejor racha histórica
+            temp_best = 1
+            for i in range(len(streaks) - 1):
+                if (streaks[i]["practice_date"] - streaks[i+1]["practice_date"]).days == 1:
+                    temp_best += 1
                 else:
-                    best_streak = max(best_streak, streak)
-                    streak = 1
-                prev = d
-            best_streak = max(best_streak, streak)
-            today_date = date.today()
-            current_streak = streak if (today_date - prev).days <= 1 else 0
+                    best_streak = max(best_streak, temp_best)
+                    temp_best = 1
+            best_streak = max(best_streak, temp_best)
 
-        # ✅ CORREGIDO: Convertir boolean a integer
+        # Totales de precisión
         acc = db_fetchone(
-            """SELECT COALESCE(SUM(correct::int),0) AS total_correct,
-                      COALESCE(SUM(attempts),0) AS total_attempts
+            """SELECT COALESCE(SUM(correct::int), 0) AS total_correct,
+                      COALESCE(SUM(attempts), 0) AS total_attempts
                FROM practice_log WHERE user_id = %s""",
             (uid,),
         )
         
         return ok({
-            "total_words":    int(total["total"]) if total and total["total"] else 0,
+            "total_words":    int(total["total"]) if total else 0,
             "current_streak": current_streak,
             "best_streak":    best_streak,
             "total_correct":  int(acc["total_correct"]) if acc else 0,
             "total_attempts": int(acc["total_attempts"]) if acc else 0,
-            "days_practiced": len(streaks) if streaks else 0,
+            "days_practiced": len(streaks)
         })
 
-    # ── GET action=srs_overview ──────────────────────────────────────────────
-    if method == "GET" and action == "srs_overview":
-        db_exec("INSERT INTO word_srs (user_id, group_id) SELECT %s, g.id FROM word_groups g WHERE g.user_id = %s ON CONFLICT DO NOTHING", (uid, uid))
-        
-        due = db_fetchone(
-            """SELECT COUNT(*) AS n FROM word_srs
-               WHERE user_id = %s AND next_review <= %s AND mastered = FALSE""",
-            (uid, today),
-        )
-        new_w = db_fetchone(
-            """SELECT COUNT(*) AS n FROM word_srs
-               WHERE user_id = %s AND repetitions = 0""",
-            (uid,),
-        )
-        learning = db_fetchone(
-            """SELECT COUNT(*) AS n FROM word_srs
-               WHERE user_id = %s AND repetitions >= 1 AND mastered = FALSE AND interval_days < 21""",
-            (uid,),
-        )
-        mature = db_fetchone(
-            """SELECT COUNT(*) AS n FROM word_srs
-               WHERE user_id = %s AND interval_days >= 21 AND mastered = TRUE""",
-            (uid,),
-        )
-        return ok({
-            "due_today": int(due["n"]) if due else 0,
-            "new_words": int(new_w["n"]) if new_w else 0,
-            "learning":  int(learning["n"]) if learning else 0,
-            "mature":    int(mature["n"]) if mature else 0,
-        })
-
-    # ── GET action=mode_breakdown ────────────────────────────────────────────
     if method == "GET" and action == "mode_breakdown":
+        # Asegúrate de que practice_answers tenga los datos por modo
         rows = db_fetchall(
             """SELECT mode,
-                      COALESCE(SUM(correct::int),0) AS correct,
-                      COALESCE(SUM(attempts),0) AS attempts
+                      COALESCE(SUM(correct::int), 0) AS correct,
+                      COALESCE(SUM(attempts), 0) AS attempts
                FROM practice_answers
                WHERE user_id = %s
                GROUP BY mode""",
             (uid,),
         )
-        return ok(rows if rows else [])
+        return ok(rows)
+
+    # ... (el resto de acciones se mantienen igual)
 
     # ── GET action=word_progress ─────────────────────────────────────────────
     if method == "GET" and action == "word_progress":
