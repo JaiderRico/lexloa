@@ -2,7 +2,7 @@
 stats.py — Estadísticas del usuario (PostgreSQL)
 """
 import re
-from datetime import date
+from datetime import date, datetime
 from flask import Blueprint, request, g, jsonify, make_response
 from config import (
     ok, err, body, db_exec, db_fetchall, db_fetchone,
@@ -34,9 +34,9 @@ def stats():
             "SELECT COUNT(*) AS total FROM word_groups WHERE user_id = %s", (uid,)
         )
         
-        # ✅ Usar created_at (existe en practice_log)
+        # ✅ CORREGIDO: Convertir a date para comparar
         streaks = db_fetchall(
-            """SELECT created_at FROM practice_log
+            """SELECT DATE(created_at) as practice_date FROM practice_log
                WHERE user_id = %s ORDER BY created_at DESC""",
             (uid,),
         )
@@ -45,9 +45,9 @@ def stats():
         best_streak = 0
         if streaks:
             streak = 1
-            prev = streaks[0]["created_at"]
+            prev = streaks[0]["practice_date"]
             for row in streaks[1:]:
-                d = row["created_at"]
+                d = row["practice_date"]
                 if (prev - d).days == 1:
                     streak += 1
                 else:
@@ -56,12 +56,13 @@ def stats():
                 prev = d
             best_streak = max(best_streak, streak)
             today_date = date.today()
-            current_streak = streak if (today_date - streaks[0]["created_at"]).days <= 1 else 0
+            current_streak = streak if (today_date - prev).days <= 1 else 0
 
+        # ✅ CORREGIDO: Usar los nombres correctos de columnas
         acc = db_fetchone(
             """SELECT COALESCE(SUM(correct),0) AS total_correct,
                       COALESCE(SUM(attempts),0) AS total_attempts
-               FROM word_srs WHERE user_id = %s""",
+               FROM practice_log WHERE user_id = %s""",  # ← practice_log, no word_srs
             (uid,),
         )
         
@@ -142,21 +143,20 @@ def stats():
             extra = ""
             params = (uid,)
 
+        # ✅ CORREGIDO: Eliminado s.correct (no existe)
         rows = db_fetchall(
             f"""SELECT g.id AS group_id, g.spanish, g.created_at,
                        STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words,
                        COALESCE(s.next_review::text, '')  AS next_review,
                        COALESCE(s.interval_days, 1)       AS interval,
                        COALESCE(s.easiness, 2.5)          AS ease_factor,
-                       COALESCE(s.repetitions, 0)          AS repetitions,
-                       COALESCE(s.mastered, FALSE)         AS mastered,
-                       COALESCE(s.correct, 0)              AS correct,
-                       COALESCE(s.attempts, 0)             AS attempts
+                       COALESCE(s.repetitions, 0)         AS repetitions,
+                       COALESCE(s.mastered, FALSE)        AS mastered
                 FROM word_groups g
                 JOIN words w ON w.group_id = g.id
                 LEFT JOIN word_srs s ON s.group_id = g.id AND s.user_id = g.user_id
                 WHERE g.user_id = %s {extra}
-                GROUP BY g.id, g.spanish, g.created_at, s.next_review, s.interval_days, s.easiness, s.repetitions, s.mastered, s.correct, s.attempts
+                GROUP BY g.id, g.spanish, g.created_at, s.next_review, s.interval_days, s.easiness, s.repetitions, s.mastered
                 ORDER BY g.created_at DESC
                 LIMIT 200""",
             params,
