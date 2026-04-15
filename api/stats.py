@@ -15,6 +15,7 @@ stats_bp = Blueprint("stats", __name__)
 def stats():
     if request.method == "OPTIONS":
         return "", 204
+    print(f"[STATS] uid={g.uid} method={request.method} action={request.args.get('action','')}", flush=True)
 
     uid = g.uid
     method = request.method
