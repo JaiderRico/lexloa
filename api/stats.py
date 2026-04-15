@@ -6,7 +6,7 @@ from datetime import date
 from flask import Blueprint, request, g, jsonify, make_response
 from config import (
     ok, err, body, db_exec, db_fetchall, db_fetchone,
-    db_insert, db_update, require_auth, get_db
+    db_insert, db_update, require_auth, get_db, today_col
 )
 import json
 
@@ -26,6 +26,7 @@ def stats():
     uid = g.uid
     method = request.method
     action = request.args.get("action", "")
+    today = str(today_col())
 
     # ── GET action=full_summary ──────────────────────────────────────────────
     if method == "GET" and action == "full_summary":
@@ -33,7 +34,7 @@ def stats():
             "SELECT COUNT(*) AS total FROM word_groups WHERE user_id = %s", (uid,)
         )
         
-        # ✅ CORREGIDO: usar created_at en lugar de practice_date
+        # ✅ Usar created_at (existe en practice_log)
         streaks = db_fetchall(
             """SELECT created_at FROM practice_log
                WHERE user_id = %s ORDER BY created_at DESC""",
@@ -54,8 +55,8 @@ def stats():
                     streak = 1
                 prev = d
             best_streak = max(best_streak, streak)
-            today = date.today()
-            current_streak = streak if (today - streaks[0]["created_at"]).days <= 1 else 0
+            today_date = date.today()
+            current_streak = streak if (today_date - streaks[0]["created_at"]).days <= 1 else 0
 
         acc = db_fetchone(
             """SELECT COALESCE(SUM(correct),0) AS total_correct,
@@ -75,26 +76,27 @@ def stats():
 
     # ── GET action=srs_overview ──────────────────────────────────────────────
     if method == "GET" and action == "srs_overview":
-        today = str(date.today())
+        # Asegurar que todas las palabras tienen registro en word_srs
+        db_exec("INSERT INTO word_srs (user_id, group_id) SELECT %s, g.id FROM word_groups g WHERE g.user_id = %s ON CONFLICT DO NOTHING", (uid, uid))
+        
         due = db_fetchone(
             """SELECT COUNT(*) AS n FROM word_srs
-               WHERE user_id = %s AND next_review <= %s""",
+               WHERE user_id = %s AND next_review <= %s AND mastered = FALSE""",
             (uid, today),
         )
         new_w = db_fetchone(
-            """SELECT COUNT(*) AS n FROM word_groups g
-               LEFT JOIN word_srs s ON s.group_id = g.id AND s.user_id = g.user_id
-               WHERE g.user_id = %s AND (s.attempts IS NULL OR s.attempts = 0)""",
+            """SELECT COUNT(*) AS n FROM word_srs
+               WHERE user_id = %s AND repetitions = 0""",
             (uid,),
         )
         learning = db_fetchone(
             """SELECT COUNT(*) AS n FROM word_srs
-               WHERE user_id = %s AND srs_interval < 21 AND attempts > 0""",  # ✅ CORREGIDO: srs_interval
+               WHERE user_id = %s AND repetitions >= 1 AND mastered = FALSE AND interval_days < 21""",
             (uid,),
         )
         mature = db_fetchone(
             """SELECT COUNT(*) AS n FROM word_srs
-               WHERE user_id = %s AND srs_interval >= 21""",  # ✅ CORREGIDO: srs_interval
+               WHERE user_id = %s AND interval_days >= 21 AND mastered = TRUE""",
             (uid,),
         )
         return ok({
@@ -120,32 +122,41 @@ def stats():
     # ── GET action=word_progress ─────────────────────────────────────────────
     if method == "GET" and action == "word_progress":
         f = request.args.get("filter", "all")
-        today = str(date.today())
-
+        
+        # Asegurar que todas las palabras tienen registro en word_srs
+        db_exec("INSERT INTO word_srs (user_id, group_id) SELECT %s, g.id FROM word_groups g WHERE g.user_id = %s ON CONFLICT DO NOTHING", (uid, uid))
+        
         if f == "due":
-            extra = "AND (s.next_review IS NULL OR s.next_review <= %s)"
+            extra = "AND s.next_review <= %s AND s.mastered = FALSE"
             params = (uid, today)
         elif f == "new":
-            extra = "AND (s.attempts IS NULL OR s.attempts = 0)"
+            extra = "AND s.repetitions = 0"
+            params = (uid,)
+        elif f == "learning":
+            extra = "AND s.repetitions >= 1 AND s.mastered = FALSE"
+            params = (uid,)
+        elif f == "mastered":
+            extra = "AND s.mastered = TRUE"
             params = (uid,)
         else:  # "all"
             extra = ""
             params = (uid,)
 
-        # ✅ CORREGIDO: usar srs_interval en lugar de interval
         rows = db_fetchall(
-            f"""SELECT g.id AS group_id, g.spanish,
+            f"""SELECT g.id AS group_id, g.spanish, g.created_at,
                        STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words,
                        COALESCE(s.next_review::text, '')  AS next_review,
-                       COALESCE(s.srs_interval, 1)        AS interval,
-                       COALESCE(s.ease_factor, 2.5)       AS ease_factor,
-                       COALESCE(s.correct, 0)             AS correct,
-                       COALESCE(s.attempts, 0)            AS attempts
+                       COALESCE(s.interval_days, 1)       AS interval,
+                       COALESCE(s.easiness, 2.5)          AS ease_factor,
+                       COALESCE(s.repetitions, 0)          AS repetitions,
+                       COALESCE(s.mastered, FALSE)         AS mastered,
+                       COALESCE(s.correct, 0)              AS correct,
+                       COALESCE(s.attempts, 0)             AS attempts
                 FROM word_groups g
                 JOIN words w ON w.group_id = g.id
                 LEFT JOIN word_srs s ON s.group_id = g.id AND s.user_id = g.user_id
                 WHERE g.user_id = %s {extra}
-                GROUP BY g.id, g.spanish, s.next_review, s.srs_interval, s.ease_factor, s.correct, s.attempts
+                GROUP BY g.id, g.spanish, g.created_at, s.next_review, s.interval_days, s.easiness, s.repetitions, s.mastered, s.correct, s.attempts
                 ORDER BY g.created_at DESC
                 LIMIT 200""",
             params,
@@ -153,6 +164,8 @@ def stats():
         
         for r in rows:
             r["english_words"] = _split(r["english_words"])
+            if r.get("created_at"):
+                r["created_at"] = str(r["created_at"])
         
         return ok(rows if rows else [])
 
