@@ -33,10 +33,10 @@ def stats():
             "SELECT COUNT(*) AS total FROM word_groups WHERE user_id = %s", (uid,)
         )
         
-        # Calcular streaks solo si hay práctica
+        # ✅ CORREGIDO: usar created_at en lugar de practice_date
         streaks = db_fetchall(
-            """SELECT practice_date FROM practice_log
-               WHERE user_id = %s ORDER BY practice_date DESC""",
+            """SELECT created_at FROM practice_log
+               WHERE user_id = %s ORDER BY created_at DESC""",
             (uid,),
         )
         
@@ -44,9 +44,9 @@ def stats():
         best_streak = 0
         if streaks:
             streak = 1
-            prev = streaks[0]["practice_date"]
+            prev = streaks[0]["created_at"]
             for row in streaks[1:]:
-                d = row["practice_date"]
+                d = row["created_at"]
                 if (prev - d).days == 1:
                     streak += 1
                 else:
@@ -55,7 +55,7 @@ def stats():
                 prev = d
             best_streak = max(best_streak, streak)
             today = date.today()
-            current_streak = streak if (today - streaks[0]["practice_date"]).days <= 1 else 0
+            current_streak = streak if (today - streaks[0]["created_at"]).days <= 1 else 0
 
         acc = db_fetchone(
             """SELECT COALESCE(SUM(correct),0) AS total_correct,
@@ -64,7 +64,6 @@ def stats():
             (uid,),
         )
         
-        # Siempre devolver ok=True, incluso con datos vacíos
         return ok({
             "total_words":    int(total["total"]) if total and total["total"] else 0,
             "current_streak": current_streak,
@@ -90,16 +89,14 @@ def stats():
         )
         learning = db_fetchone(
             """SELECT COUNT(*) AS n FROM word_srs
-               WHERE user_id = %s AND interval < 21 AND attempts > 0""",
+               WHERE user_id = %s AND srs_interval < 21 AND attempts > 0""",  # ✅ CORREGIDO: srs_interval
             (uid,),
         )
         mature = db_fetchone(
             """SELECT COUNT(*) AS n FROM word_srs
-               WHERE user_id = %s AND interval >= 21""",
+               WHERE user_id = %s AND srs_interval >= 21""",  # ✅ CORREGIDO: srs_interval
             (uid,),
         )
-        
-        # Siempre devolver ok=True
         return ok({
             "due_today": int(due["n"]) if due else 0,
             "new_words": int(new_w["n"]) if new_w else 0,
@@ -135,11 +132,12 @@ def stats():
             extra = ""
             params = (uid,)
 
+        # ✅ CORREGIDO: usar srs_interval en lugar de interval
         rows = db_fetchall(
             f"""SELECT g.id AS group_id, g.spanish,
                        STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words,
                        COALESCE(s.next_review::text, '')  AS next_review,
-                       COALESCE(s.interval, 1)            AS interval,
+                       COALESCE(s.srs_interval, 1)        AS interval,
                        COALESCE(s.ease_factor, 2.5)       AS ease_factor,
                        COALESCE(s.correct, 0)             AS correct,
                        COALESCE(s.attempts, 0)            AS attempts
@@ -147,13 +145,12 @@ def stats():
                 JOIN words w ON w.group_id = g.id
                 LEFT JOIN word_srs s ON s.group_id = g.id AND s.user_id = g.user_id
                 WHERE g.user_id = %s {extra}
-                GROUP BY g.id, g.spanish, s.next_review, s.interval, s.ease_factor, s.correct, s.attempts
+                GROUP BY g.id, g.spanish, s.next_review, s.srs_interval, s.ease_factor, s.correct, s.attempts
                 ORDER BY g.created_at DESC
                 LIMIT 200""",
             params,
         )
         
-        # Siempre devolver una lista (puede estar vacía)
         for r in rows:
             r["english_words"] = _split(r["english_words"])
         
