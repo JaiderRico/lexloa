@@ -30,9 +30,8 @@ def stats():
 
     # ── GET action=full_summary ──────────────────────────────────────────────
     if method == "GET" and action == "full_summary":
-        total = db_fetchone(
-            "SELECT COUNT(*) AS total FROM word_groups WHERE user_id = %s", (uid,)
-        )
+total = db_fetchone(
+    "SELECT COUNT(DISTINCT g.id) AS total FROM word_groups g WHERE g.user_id = %s", (uid,)
         
         # ✅ CORREGIDO: Convertir a date para comparar
         streaks = db_fetchall(
