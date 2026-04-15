@@ -31,10 +31,9 @@ def stats():
     # ── GET action=full_summary ──────────────────────────────────────────────
     if method == "GET" and action == "full_summary":
         total = db_fetchone(
-            "SELECT COUNT(DISTINCT g.id) AS total FROM word_groups g WHERE g.user_id = %s", (uid,)
+            "SELECT COUNT(*) AS total FROM word_groups WHERE user_id = %s", (uid,)
         )
         
-        # ✅ CORREGIDO: Convertir a date para comparar
         streaks = db_fetchall(
             """SELECT DATE(created_at) as practice_date FROM practice_log
                WHERE user_id = %s ORDER BY created_at DESC""",
@@ -58,11 +57,11 @@ def stats():
             today_date = date.today()
             current_streak = streak if (today_date - prev).days <= 1 else 0
 
-        # ✅ CORREGIDO: Usar los nombres correctos de columnas
+        # ✅ CORREGIDO: Convertir boolean a integer
         acc = db_fetchone(
-            """SELECT COALESCE(SUM(correct),0) AS total_correct,
+            """SELECT COALESCE(SUM(correct::int),0) AS total_correct,
                       COALESCE(SUM(attempts),0) AS total_attempts
-               FROM practice_log WHERE user_id = %s""",  # ← practice_log, no word_srs
+               FROM practice_log WHERE user_id = %s""",
             (uid,),
         )
         
@@ -77,7 +76,6 @@ def stats():
 
     # ── GET action=srs_overview ──────────────────────────────────────────────
     if method == "GET" and action == "srs_overview":
-        # Asegurar que todas las palabras tienen registro en word_srs
         db_exec("INSERT INTO word_srs (user_id, group_id) SELECT %s, g.id FROM word_groups g WHERE g.user_id = %s ON CONFLICT DO NOTHING", (uid, uid))
         
         due = db_fetchone(
@@ -111,7 +109,7 @@ def stats():
     if method == "GET" and action == "mode_breakdown":
         rows = db_fetchall(
             """SELECT mode,
-                      COALESCE(SUM(correct),0)  AS correct,
+                      COALESCE(SUM(correct::int),0) AS correct,
                       COALESCE(SUM(attempts),0) AS attempts
                FROM practice_answers
                WHERE user_id = %s
@@ -124,7 +122,6 @@ def stats():
     if method == "GET" and action == "word_progress":
         f = request.args.get("filter", "all")
         
-        # Asegurar que todas las palabras tienen registro en word_srs
         db_exec("INSERT INTO word_srs (user_id, group_id) SELECT %s, g.id FROM word_groups g WHERE g.user_id = %s ON CONFLICT DO NOTHING", (uid, uid))
         
         if f == "due":
@@ -139,11 +136,10 @@ def stats():
         elif f == "mastered":
             extra = "AND s.mastered = TRUE"
             params = (uid,)
-        else:  # "all"
+        else:
             extra = ""
             params = (uid,)
 
-        # ✅ CORREGIDO: Eliminado s.correct (no existe)
         rows = db_fetchall(
             f"""SELECT g.id AS group_id, g.spanish, g.created_at,
                        STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words,
@@ -173,7 +169,7 @@ def stats():
     if method == "GET" and action == "export":
         rows = db_fetchall(
             """SELECT g.spanish, g.created_at,
-                      STRING_AGG(w.english, '||' ORDER BY w.id)       AS english_words,
+                      STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words,
                       STRING_AGG(w.is_hard::text, '||' ORDER BY w.id) AS english_diffs
                FROM word_groups g
                JOIN words w ON w.group_id = g.id
