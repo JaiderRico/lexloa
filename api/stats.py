@@ -193,7 +193,6 @@ def stats():
         data = b.get("data")
         if not data or not data.get("words"):
             return err("Datos de importación inválidos")
-
         words_to_review = []
         duplicates = 0
 
