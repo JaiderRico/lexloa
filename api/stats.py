@@ -67,8 +67,8 @@ def stats():
         # Totales de precisión
         acc = db_fetchone(
             """SELECT COALESCE(SUM(correct::int), 0) AS total_correct,
-                      COALESCE(SUM(attempts), 0) AS total_attempts
-               FROM practice_log WHERE user_id = %s""",
+                    COUNT(*) AS total_attempts
+            FROM practice_log WHERE user_id = %s""",
             (uid,),
         )
         
