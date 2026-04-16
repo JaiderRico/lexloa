@@ -190,7 +190,8 @@ def stats():
     # ── POST action=import_preview ───────────────────────────────────────────
     if method == "POST" and action == "import_preview":
         b = body()
-        data = b.get("data")
+        print(f"[IMPORT_PREVIEW] body={json.dumps(b)[:500]}", flush=True)
+        data = b.get("data") or b
         if not data or not data.get("words"):
             return err("Datos de importación inválidos")
         words_to_review = []
