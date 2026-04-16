@@ -104,7 +104,7 @@ def stats():
         
         if f == "due":
             extra = "AND s.next_review <= %s AND s.mastered = FALSE"
-            params = (uid, today)
+            params = (uid, str(today_date))
         elif f == "new":
             extra = "AND s.repetitions = 0"
             params = (uid,)
