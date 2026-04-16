@@ -93,18 +93,34 @@ def practice():
         seen = [int(x) for x in request.args.get("seen", "").split(",") if x.strip().isdigit()]
         per_day = max(0, int(request.args.get("per_day", 0)))
 
+        all_words_mode = not request.args.get("date") and not request.args.get("dates")
+
         if request.args.get("dates"):
             import re
             raw_dates = [d.strip() for d in request.args.get("dates", "").split(",")]
             dates = [d for d in raw_dates if re.match(r"^\d{4}-\d{2}-\d{2}$", d)]
+        elif all_words_mode:
+            dates = []
         else:
             dates = [request.args.get("date", str(today_col()))]
 
-        if not dates:
+        if not all_words_mode and not dates:
             return err("Fechas inválidas", 400)
 
         eligible_ids = []
         total_count = 0
+
+        if all_words_mode:
+            all_ids = [r["id"] for r in db_fetchall(
+                "SELECT id FROM word_groups WHERE user_id = %s ORDER BY id ASC", (uid,)
+            )]
+            eligible_ids = all_ids
+            total_count = len(all_ids)
+            if total_count == 0:
+                return err("No hay palabras disponibles", 404)
+        else:
+            pass  # el for de abajo lo maneja
+
         for d in dates:
             day_ids = [r["id"] for r in db_fetchall(
                 "SELECT id FROM word_groups WHERE user_id = %s AND created_at = %s ORDER BY id ASC", (uid, d)
