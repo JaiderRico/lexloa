@@ -102,9 +102,10 @@ def stats():
         
         db_exec("INSERT INTO word_srs (user_id, group_id) SELECT %s, g.id FROM word_groups g WHERE g.user_id = %s ON CONFLICT DO NOTHING", (uid, uid))
         
+        today_str = str(today_date)
         if f == "due":
             extra = "AND s.next_review <= %s AND s.mastered = FALSE"
-            params = (uid, str(today_date))
+            params = (uid, today_str)
         elif f == "new":
             extra = "AND s.repetitions = 0"
             params = (uid,)
