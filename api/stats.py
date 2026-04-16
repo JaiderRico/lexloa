@@ -7,9 +7,16 @@ from config import (
     ok, err, db_exec, db_fetchall, db_fetchone, require_auth, today_col
 )
 import json
-
+import re
 stats_bp = Blueprint("stats", __name__)
 
+def _split(val):
+    if not val:
+        return []
+    return [v.strip() for v in val.split("||") if v.strip()]
+
+def body():
+    return request.get_json(silent=True) or {}
 @stats_bp.route("/stats", methods=["GET", "POST", "OPTIONS"])
 @require_auth
 def stats():
