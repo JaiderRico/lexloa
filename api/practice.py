@@ -192,8 +192,10 @@ def practice():
             if direction == "es_en":
                 correct_str = ", ".join(english_list)
                 prompt = f'Palabra en español: "{spanish}". El estudiante respondió: "{answer}". Respuestas correctas: {correct_str}. ¿Es correcta? Acepta sinónimos cercanos. Responde SOLO JSON: {{"correct":true/false,"feedback":"explicación breve en español de máximo 20 palabras"}}'
+# DESPUÉS
             else:
-                prompt = f'La palabra en inglés era: "{question}". El estudiante respondió en español: "{answer}". Respuesta correcta: "{spanish}". ¿Es correcta? SOLO JSON: {{"correct":true/false,"feedback":"explicación breve en español de máximo 20 palabras"}}'
+                prompt = f'La palabra en inglés era: "{question}". El estudiante escribió como respuesta: "{answer}". La respuesta correcta es: "{spanish}". Compara EXACTAMENTE lo que escribió el estudiante con la respuesta correcta. Si "{answer}" no se parece en nada a "{spanish}", responde correct:false. Solo acepta si "{answer}" es claramente la misma palabra o un sinónimo muy cercano en español. SOLO JSON: {{"correct":true/false,"feedback":"explicación breve en español de máximo 20 palabras"}}'
+
 
             raw = groq_call(prompt, 120)
             parsed = parse_groq_json(raw)
