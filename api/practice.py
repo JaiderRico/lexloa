@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from flask import Blueprint, request, g
 from config import (
     ok, err, body, db_exec, db_fetchall, db_fetchone,
-    db_insert, db_update, groq_call, parse_groq_json, require_auth, get_db,today_col
+    db_insert, db_update, groq_call, parse_groq_json, require_auth, get_db, today_col
 )
 
 practice_bp = Blueprint("practice", __name__)
@@ -191,11 +191,32 @@ def practice():
 
             if direction == "es_en":
                 correct_str = ", ".join(english_list)
-                prompt = f'Palabra en español: "{spanish}". El estudiante respondió: "{answer}". Respuestas correctas: {correct_str}. ¿Es correcta? Acepta sinónimos cercanos. Responde SOLO JSON: {{"correct":true/false,"feedback":"explicación breve en español de máximo 20 palabras"}}'
-# DESPUÉS
+                prompt = (
+                    f'La palabra en español es: "{spanish}". '
+                    f'Las traducciones correctas al inglés son: {correct_str}. '
+                    f'El estudiante respondió: "{answer}". '
+                    f'Evalúa si la respuesta es correcta. '
+                    f'REGLAS ESTRICTAS: '
+                    f'1. La respuesta debe ser la misma palabra o un sinónimo muy cercano (igual significado y registro). '
+                    f'2. Una palabra completamente diferente es INCORRECTA aunque esté relacionada. '
+                    f'3. Acepta variaciones menores de ortografía solo si la palabra es claramente reconocible. '
+                    f'4. NO aceptes palabras que solo comparten la raíz o campo semántico. '
+                    f'Responde SOLO JSON: {{"correct":true/false,"feedback":"explicación breve en español de máximo 20 palabras"}}'
+                )
             else:
-                prompt = f'La palabra en inglés era: "{question}". El estudiante escribió como respuesta: "{answer}". La respuesta correcta es: "{spanish}". Compara EXACTAMENTE lo que escribió el estudiante con la respuesta correcta. Si "{answer}" no se parece en nada a "{spanish}", responde correct:false. Solo acepta si "{answer}" es claramente la misma palabra o un sinónimo muy cercano en español. SOLO JSON: {{"correct":true/false,"feedback":"explicación breve en español de máximo 20 palabras"}}'
-
+                prompt = (
+                    f'La(s) palabra(s) en inglés era(n): "{question}". '
+                    f'La traducción correcta al español es: "{spanish}". '
+                    f'El estudiante respondió: "{answer}". '
+                    f'Evalúa si la respuesta es correcta. '
+                    f'REGLAS ESTRICTAS: '
+                    f'1. La respuesta debe ser exactamente "{spanish}" o un sinónimo directo (misma palabra, mismo significado). '
+                    f'2. Si "{answer}" es una palabra diferente aunque relacionada, es INCORRECTA. '
+                    f'3. El orden de las palabras importa si son frases. '
+                    f'4. NO aceptes paráfrasis ni palabras del mismo campo semántico. '
+                    f'5. Solo acepta si es claramente la misma palabra o sinónimo perfecto. '
+                    f'Responde SOLO JSON: {{"correct":true/false,"feedback":"explicación breve en español de máximo 20 palabras"}}'
+                )
 
             raw = groq_call(prompt, 120)
             parsed = parse_groq_json(raw)
@@ -243,10 +264,17 @@ def practice():
             correct_str = ", ".join(english_list)
 
             prompt = (
-                f'La palabra en español es "{spanish}". Tiene los siguientes significados en inglés: {correct_str}.\n'
+                f'La palabra en español es "{spanish}". '
+                f'Tiene exactamente {len(english_list)} significado(s) en inglés: {correct_str}.\n'
                 f'El estudiante escribió: "{answer}".\n'
-                "¿Escribió TODOS los significados correctamente? Acepta variaciones menores.\n"
-                'Responde SOLO JSON: {"correct":true/false,"feedback":"qué faltó o estuvo mal, en español, máximo 25 palabras"}'
+                f'REGLAS ESTRICTAS:\n'
+                f'1. El estudiante debe escribir TODOS los significados correctos.\n'
+                f'2. Cada palabra escrita debe corresponder exactamente a uno de los significados (o ser sinónimo perfecto).\n'
+                f'3. Si escribe palabras adicionales incorrectas, es INCORRECTO.\n'
+                f'4. Si falta algún significado, es INCORRECTO.\n'
+                f'5. El orden no importa, pero cada palabra debe ser correcta individualmente.\n'
+                f'6. NO aceptes palabras relacionadas o del mismo campo semántico como correctas.\n'
+                f'Responde SOLO JSON: {{"correct":true/false,"feedback":"qué faltó o estuvo mal, en español, máximo 25 palabras"}}'
             )
             raw = groq_call(prompt, 150)
             parsed = parse_groq_json(raw)
