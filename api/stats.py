@@ -4,7 +4,7 @@ stats.py — Estadísticas del usuario (PostgreSQL)
 from datetime import date, timedelta
 from flask import Blueprint, request, g, make_response
 from config import (
-    ok, err, db_exec, db_fetchall, db_fetchone, require_auth, today_col
+    ok, err, db_exec, db_fetchall, db_fetchone, require_auth, today_col, get_db
 )
 import json
 import re
@@ -101,7 +101,7 @@ def stats():
         )
         rows = rows if rows else []
         existing_modes = {r["mode"]: r for r in rows}
-        
+
         mode_meta = {
             "type":     {"icon": "⌨",  "label": "Escribir"},
             "multiple": {"icon": "◉",  "label": "Opción múltiple"},
