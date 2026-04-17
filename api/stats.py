@@ -89,17 +89,43 @@ def stats():
         })
 
     if method == "GET" and action == "mode_breakdown":
-        # Asegúrate de que practice_answers tenga los datos por modo
         rows = db_fetchall(
             """SELECT mode,
                       COALESCE(SUM(correct::int), 0) AS correct,
-                      COALESCE(SUM(attempts), 0) AS attempts
-               FROM practice_answers
+                      COUNT(*) AS attempts
+               FROM practice_log
                WHERE user_id = %s
                GROUP BY mode""",
             (uid,),
         )
-        return ok(rows)
+        mode_meta = {
+            "type":     {"icon": "⌨",  "label": "Escribir"},
+            "multiple": {"icon": "◉",  "label": "Opción múltiple"},
+            "timer":    {"icon": "⏱",  "label": "Contrarreloj"},
+            "scramble": {"icon": "🔀", "label": "Ordenar letras"},
+            "match":    {"icon": "🔗", "label": "Emparejar"},
+            "listen":   {"icon": "🎧", "label": "Escuchar"},
+            "fill":     {"icon": "✏️", "label": "Completar"},
+            "speak":    {"icon": "🎤", "label": "Hablar"},
+            "quiz":     {"icon": "📝", "label": "Quiz"},
+        }
+        result = []
+        for r in rows:
+            mode = r["mode"] or "type"
+            correct = int(r["correct"]) if r["correct"] else 0
+            attempts = int(r["attempts"]) if r["attempts"] else 0
+            pct = round(correct / attempts * 100) if attempts > 0 else 0
+            meta = mode_meta.get(mode, {"icon": "●", "label": mode})
+            result.append({
+                "mode": mode,
+                "icon": meta["icon"],
+                "label": meta["label"],
+                "correct": correct,
+                "total": attempts,
+                "accuracy_pct": pct,
+            })
+        result.sort(key=lambda x: x["total"], reverse=True)
+        return ok(result)
 
     # ... (el resto de acciones se mantienen igual)
 
