@@ -11,7 +11,10 @@ const STATIC = [
 // ── Instalar: cachear archivos estáticos ─────────────────────
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(STATIC)).then(() => self.skipWaiting())
+    caches.open(CACHE)
+      .then(c => c.addAll(STATIC))
+      .catch(err => console.error('Cache install failed:', err))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -28,12 +31,14 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  // Requests a la API — network first, guardar en IDB vía cliente, no cachear
+  // Ignorar schemes no-soportados
+  if (!['http:', 'https:'].includes(url.protocol)) return;
+
+  // Requests a la API
   if (url.pathname.includes('/api/')) {
     e.respondWith(
       fetch(e.request)
         .then(res => {
-          // Si la API responde, enviar datos al cliente para que los guarde en IDB
           if (res.ok && e.request.method === 'GET' && url.pathname.includes('words.php')) {
             const resClone = res.clone();
             resClone.json().then(data => {
@@ -45,26 +50,32 @@ self.addEventListener('fetch', e => {
           return res;
         })
         .catch(() => {
-          // Sin red: devolver datos guardados en IDB (el cliente los inyecta)
-          return new Response(JSON.stringify({ ok: false, offline: true, error: 'Sin conexión' }),
-            { headers: { 'Content-Type': 'application/json' } });
+          return new Response(JSON.stringify({ ok: false, offline: true, error: 'Sin conexión' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' }
+          });
         })
     );
     return;
   }
 
-  // Recursos estáticos — cache first, fallback a network
-  // Ignorar schemes no-http (chrome-extension, data, blob…)
-  const scheme = new URL(e.request.url).protocol;
-  if (scheme !== 'https:' && scheme !== 'http:') return;
-
+  // Recursos estáticos — cache first
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request).then(res => {
-      if (res.ok) {
-        const clone = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone));
-      }
-      return res;
-    }))
+    caches.match(e.request).then(cached => {
+      if (cached) return cached;
+      return fetch(e.request).then(res => {
+        if (res && res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return res;
+      }).catch(() => {
+        // Fallback para cuando no hay caché ni red
+        if (e.request.mode === 'navigate') {
+          return caches.match('/index.html');
+        }
+        return new Response('Offline', { status: 503 });
+      });
+    })
   );
 });
