@@ -2943,8 +2943,8 @@ async function loadModeStats() {
   const r = await api('/stats?action=mode_breakdown');
   const wrap = document.getElementById('mode-stats-container');
   if (!wrap) return;
-  if (!r.ok || !r.data.length) {
-    wrap.innerHTML = `<div style="font-size:12px;color:var(--muted);">Practica más para ver estadísticas por modo</div>`;
+  if (!r.ok) {
+    wrap.innerHTML = `<div style="font-size:12px;color:var(--muted);">Error al cargar estadísticas</div>`;
     return;
   }
   const barColor = pct => pct >= 80 ? 'var(--success)' : pct >= 60 ? 'var(--accent)' : pct >= 40 ? 'var(--warn)' : 'var(--danger)';
