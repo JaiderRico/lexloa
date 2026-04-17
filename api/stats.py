@@ -109,13 +109,13 @@ def stats():
             "speak":    {"icon": "🎤", "label": "Hablar"},
             "quiz":     {"icon": "📝", "label": "Quiz"},
         }
+        existing_modes = {r["mode"]: r for r in rows}
         result = []
-        for r in rows:
-            mode = r["mode"] or "type"
-            correct = int(r["correct"]) if r["correct"] else 0
-            attempts = int(r["attempts"]) if r["attempts"] else 0
+        for mode, meta in mode_meta.items():
+            r = existing_modes.get(mode)
+            correct = int(r["correct"]) if r and r["correct"] else 0
+            attempts = int(r["attempts"]) if r and r["attempts"] else 0
             pct = round(correct / attempts * 100) if attempts > 0 else 0
-            meta = mode_meta.get(mode, {"icon": "●", "label": mode})
             result.append({
                 "mode": mode,
                 "icon": meta["icon"],
@@ -126,9 +126,6 @@ def stats():
             })
         result.sort(key=lambda x: x["total"], reverse=True)
         return ok(result)
-
-    # ... (el resto de acciones se mantienen igual)
-
     # ── GET action=word_progress ─────────────────────────────────────────────
     if method == "GET" and action == "word_progress":
         f = request.args.get("filter", "all")
