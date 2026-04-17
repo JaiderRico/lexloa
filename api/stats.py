@@ -88,6 +88,7 @@ def stats():
             "days_practiced": len(streaks)
         })
 
+
     if method == "GET" and action == "mode_breakdown":
         rows = db_fetchall(
             """SELECT mode,
@@ -98,6 +99,9 @@ def stats():
                GROUP BY mode""",
             (uid,),
         )
+        rows = rows if rows else []
+        existing_modes = {r["mode"]: r for r in rows}
+        
         mode_meta = {
             "type":     {"icon": "⌨",  "label": "Escribir"},
             "multiple": {"icon": "◉",  "label": "Opción múltiple"},
