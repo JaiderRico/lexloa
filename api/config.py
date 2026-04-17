@@ -11,7 +11,7 @@ from typing import Any
 
 import psycopg2
 import psycopg2.extras
-from api import app
+
 from flask import request, jsonify, g
 from dotenv import load_dotenv
 import pytz
@@ -107,13 +107,6 @@ def db_update(sql: str, params=None):
     with conn.cursor() as cur:
         cur.execute(sql, params or ())
         return cur.rowcount
-
-@app.after_request
-def no_cache(r):
-    r.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    r.headers["Pragma"] = "no-cache"
-    r.headers["Expires"] = "0"
-    return r
 
 # ── Helpers de respuesta ─────────────────────────────────────────────────────
 def ok(data: Any):
