@@ -311,6 +311,7 @@ def practice():
         dup = db_fetchone("SELECT id FROM word_groups WHERE user_id = %s AND spanish = %s AND id != %s LIMIT 1", (uid, spanish, gid))
         if dup: return err(f'Ya existe "{spanish}" en otro grupo', 409)
 
+        from config import get_db
         conn = get_db()
         conn.autocommit = False
         try:
