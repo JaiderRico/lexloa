@@ -1,5 +1,5 @@
 // ── Lexlo Service Worker — Modo Offline ─────────────────────
-const CACHE = 'lexlo-v3';
+const CACHE = 'lexlo-v4';
 const STATIC = [
   '/',
   '/index.html',
