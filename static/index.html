@@ -283,6 +283,7 @@ nav{ display:flex; align-items:center; border-bottom:1px solid var(--border); ba
 .srs-q-btn[data-q="2"]:hover{ border-color:var(--warn); background:rgba(240,169,74,.1); }
 .srs-q-btn[data-q="3"]:hover{ border-color:var(--accent); background:rgba(61,232,200,.08); }
 .srs-q-btn[data-q="4"]:hover{ border-color:var(--success); background:rgba(74,212,138,.1); }
+.srs-q-btn[data-q="5"]:hover{ border-color:var(--accent2); background:rgba(126,240,160,.15); }
 .srs-quality-label{ font-size:10px; color:var(--muted); text-align:center; margin-bottom:4px; letter-spacing:.04em; text-transform:uppercase; }
 
 /* ══════════════════════════════════════════════════════
@@ -2063,11 +2064,15 @@ function showSrsQuality(groupId, wasCorrect, onNext) {
       </button>
       <button class="srs-q-btn" data-q="3" onclick="_rateAndNext(${groupId},3,this)">
         <span class="srs-q-emoji">🤔</span>
-        <span class="srs-q-label">Con ayuda</span>
+        <span class="srs-q-label">Normal</span>
       </button>
       <button class="srs-q-btn" data-q="4" onclick="_rateAndNext(${groupId},4,this)">
         <span class="srs-q-emoji">😊</span>
         <span class="srs-q-label">Fácil</span>
+      </button>
+      <button class="srs-q-btn" data-q="5" onclick="_rateAndNext(${groupId},5,this)">
+        <span class="srs-q-emoji">🚀</span>
+        <span class="srs-q-label">Muy fácil</span>
       </button>
     </div>`;
   card.appendChild(section);
@@ -2189,12 +2194,13 @@ function confirmMC(){
     else if(_mcSelected.has(b.dataset.opt)) b.classList.add('wrong');
   });
   trackSessionResult(isCorrect);
-  const fb=document.getElementById('fb-box');
+const fb=document.getElementById('fb-box');
   if(fb) fb.innerHTML=isCorrect
     ?`<div class="fb-box ok"><strong>✓ Correcto</strong></div>`
     :`<div style="font-size:12px;color:var(--muted);margin-top:4px;">Respuesta${_mcCorrects.size>1?'s':''} correcta${_mcCorrects.size>1?'s':''}: <strong style="color:var(--success);">${[..._mcCorrects].join(' / ')}</strong></div>`;
   if(!isCorrect&&_cur){ _missed.push({question:_cur._q,correct_answer:[..._mcCorrects],your_answer:[..._mcSelected].join(', ')||'(ninguna)'}); renderMissed(); }
-  setTimeout(()=>loadMultipleChoice(),1500);
+  if(_cur){ api('/practice?action=check',{method:'POST',body:JSON.stringify({group_id:_cur.id,direction:_dir,answer:[..._mcSelected].join(', ')||'(ninguna)',question:_cur._q,mode:'multiple'})}).catch(()=>{}); }
+  showSrsQuality(_cur.id, isCorrect, ()=>loadMultipleChoice());
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2428,21 +2434,18 @@ function matchClick(el){
   const prev=_matchSelected;
   if(prev.side===side){ prev.el.classList.remove('selected'); _matchSelected={id,side,el}; el.classList.add('selected'); return; }
   const isMatch=prev.id===id;
-  if(isMatch){
+if(isMatch){
     _matchPairs[id].matched=true; _matchCorrect++;
     _matchSelected=null;
-    // Log correct match to SRS (quality 4 = correct)
     api('/srs?action=review',{method:'POST',body:JSON.stringify({group_id:_matchPairs[id].groupId||_matchPairs[id].id, quality:4})});
+    api('/practice?action=check',{method:'POST',body:JSON.stringify({group_id:_matchPairs[id].groupId||_matchPairs[id].id,direction:'es_en',answer:_matchPairs[id].en,question:_matchPairs[id].es,mode:'match'})}).catch(()=>{});
     if(_matchCorrect>=_matchPairs.length){
       trackSessionResult(true);
       setTimeout(()=>{ const c=document.getElementById('practice-card'); if(c) c.innerHTML=`<div style="text-align:center;padding:24px 0;"><div style="font-size:36px;margin-bottom:10px;">🎉</div><div style="font-size:16px;font-weight:800;color:var(--success);">¡Todos emparejados!</div></div>`; },400);
     } else renderMatch();
   } else {
-    // Log wrong attempt to SRS (quality 2 = incorrect)
     api('/srs?action=review',{method:'POST',body:JSON.stringify({group_id:_matchPairs[id].groupId||_matchPairs[id].id, quality:2})});
-    el.classList.add('wrong-flash'); prev.el.classList.add('wrong-flash');
-    setTimeout(()=>{ el.classList.remove('wrong-flash','selected'); prev.el.classList.remove('wrong-flash','selected'); _matchSelected=null; },700);
-  }
+    api('/practice?action=check',{method:'POST',body:JSON.stringify({group_id:_matchPairs[id].groupId||_matchPairs[id].id,direction:'es_en',answer:'(incorrecto)',question:_matchPairs[id].es,mode:'match'})}).catch(()=>{});
 }
 
 // ══════════════════════════════════════════════════════════

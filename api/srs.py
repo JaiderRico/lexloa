@@ -82,7 +82,7 @@ def srs():
 
         interval = min(365, max(1, interval))
         next_review = str(today_col() + timedelta(days=interval))
-        mastered = interval >= 21 and quality == 5
+        mastered = interval >= 21 and quality >= 4
 
         db_update(
             "UPDATE word_srs SET easiness=%s, interval_days=%s, repetitions=%s, next_review=%s, last_quality=%s, mastered=%s WHERE user_id=%s AND group_id=%s",
