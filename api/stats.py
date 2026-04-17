@@ -91,12 +91,12 @@ def stats():
 
     if method == "GET" and action == "mode_breakdown":
         rows = db_fetchall(
-            """SELECT mode,
+            """SELECT practice_mode AS mode,
                       COALESCE(SUM(correct::int), 0) AS correct,
                       COUNT(*) AS attempts
                FROM practice_log
                WHERE user_id = %s
-               GROUP BY mode""",
+               GROUP BY practice_mode""",
             (uid,),
         )
         rows = rows if rows else []
