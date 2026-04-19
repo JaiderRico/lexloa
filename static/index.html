@@ -1147,9 +1147,14 @@ async function api(path, opts={}) {
 }
 
 async function boot() {
-  if (_token) {
-    const r = await api(`/auth?action=me`);
-    if (r.ok) { showApp(r.data.username); return; }
+  try {
+    if (_token) {
+      const r = await api(`/auth?action=me`);
+      if (r.ok) { showApp(r.data.username); return; }
+      _token = ''; localStorage.removeItem('lexlo_token'); localStorage.removeItem('lexlo_user');
+    }
+  } catch(e) {
+    console.error('boot error:', e);
     _token = ''; localStorage.removeItem('lexlo_token'); localStorage.removeItem('lexlo_user');
   }
   document.getElementById('auth-screen').classList.remove('hidden');
