@@ -2439,7 +2439,7 @@ function matchClick(el){
   const prev=_matchSelected;
   if(prev.side===side){ prev.el.classList.remove('selected'); _matchSelected={id,side,el}; el.classList.add('selected'); return; }
   const isMatch=prev.id===id;
-if(isMatch){
+  if(isMatch){
     _matchPairs[id].matched=true; _matchCorrect++;
     _matchSelected=null;
     api('/srs?action=review',{method:'POST',body:JSON.stringify({group_id:_matchPairs[id].groupId||_matchPairs[id].id, quality:4})});
@@ -2451,6 +2451,11 @@ if(isMatch){
   } else {
     api('/srs?action=review',{method:'POST',body:JSON.stringify({group_id:_matchPairs[id].groupId||_matchPairs[id].id, quality:2})});
     api('/practice?action=check',{method:'POST',body:JSON.stringify({group_id:_matchPairs[id].groupId||_matchPairs[id].id,direction:'es_en',answer:'(incorrecto)',question:_matchPairs[id].es,mode:'match'})}).catch(()=>{});
+    _matchSelected=null;
+    prev.el.classList.remove('selected');
+    el.classList.add('wrong-flash');
+    setTimeout(()=>el.classList.remove('wrong-flash'),500);
+    renderMatch();
   }
 }
 
