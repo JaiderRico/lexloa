@@ -350,4 +350,92 @@ def stats():
             r["correct"] = int(r["correct"]) if r["correct"] else 0
         return ok(rows if rows else [])
 
+    # ── GET action=practice_frequency ──────────────────────────────────────────
+    if method == "GET" and action == "practice_frequency":
+        rows = db_fetchall(
+            """SELECT g.id, g.spanish,
+                      STRING_AGG(w.english, '||' ORDER BY w.id) AS english_words,
+                      COUNT(*) AS practice_count,
+                      SUM(pl.correct::int) AS correct_count,
+                      MAX(pl.created_at) AS last_practiced
+               FROM practice_log pl
+               JOIN word_groups g ON g.id = pl.group_id
+               JOIN words w ON w.group_id = g.id
+               WHERE pl.user_id = %s
+               GROUP BY g.id
+               ORDER BY practice_count DESC
+               LIMIT 100""",
+            (uid,),
+        )
+        for r in rows:
+            r["english_words"] = _split(r["english_words"])
+            if r.get("last_practiced"):
+                r["last_practiced"] = str(r["last_practiced"])
+        return ok(rows)
+
+    # ── GET action=extended_stats ───────────────────────────────────────────
+    if method == "GET" and action == "extended_stats":
+        db_exec("INSERT INTO word_srs (user_id, group_id) SELECT %s, g.id FROM word_groups g WHERE g.user_id = %s ON CONFLICT DO NOTHING", (uid, uid))
+
+        per = db_fetchone(
+            """SELECT 
+                 COUNT(*) AS total_words,
+                 SUM(CASE WHEN s.mastered THEN 1 ELSE 0 END) AS mastered,
+                 SUM(CASE WHEN s.repetitions = 0 THEN 1 ELSE 0 END) AS new_words,
+                 SUM(CASE WHEN s.repetitions >= 1 AND s.mastered = FALSE THEN 1 ELSE 0 END) AS learning,
+                 SUM(CASE WHEN s.next_review <= %s AND s.mastered = FALSE THEN 1 ELSE 0 END) AS due_today,
+                 ROUND(AVG(s.easiness)::numeric, 2) AS avg_easiness,
+                 ROUND(AVG(s.interval_days)::numeric, 1) AS avg_interval
+               FROM word_srs s
+               JOIN word_groups g ON g.id = s.group_id
+               WHERE s.user_id = %s""",
+            (str(today_date), uid),
+        )
+
+        att = db_fetchone(
+            """SELECT 
+                 COUNT(*) AS total_attempts,
+                 SUM(correct::int) AS total_correct,
+                 ROUND(AVG(CASE WHEN correct THEN 1.0 ELSE 0.0 END) * 100, 1) AS accuracy_pct,
+                 MIN(created_at) AS first_practice,
+                 MAX(created_at) AS last_practice
+               FROM practice_log WHERE user_id = %s""",
+            (uid,),
+        )
+
+        days_row = db_fetchone(
+            """SELECT COUNT(DISTINCT DATE(created_at)) AS active_days
+               FROM practice_log WHERE user_id = %s""",
+            (uid,),
+        )
+
+        recent = db_fetchall(
+            """SELECT DATE(created_at) AS day, COUNT(*) AS attempts
+               FROM practice_log
+               WHERE user_id = %s AND created_at >= CURRENT_DATE - 30
+               GROUP BY day ORDER BY day DESC""",
+            (uid,),
+        )
+
+        total_days = (date.today() - att["first_practice"].date()).days + 1 if att.get("first_practice") else 1
+        learning_rate = round(per["learning"] / total_days, 2) if total_days > 0 else 0
+
+        return ok({
+            "total_words": int(per["total_words"]) if per else 0,
+            "mastered": int(per["mastered"]) if per else 0,
+            "new_words": int(per["new_words"]) if per else 0,
+            "learning": int(per["learning"]) if per else 0,
+            "due_today": int(per["due_today"]) if per else 0,
+            "avg_easiness": float(per["avg_easiness"]) if per and per["avg_easiness"] else 2.5,
+            "avg_interval": float(per["avg_interval"]) if per and per["avg_interval"] else 1.0,
+            "total_attempts": int(att["total_attempts"]) if att else 0,
+            "total_correct": int(att["total_correct"]) if att else 0,
+            "accuracy_pct": float(att["accuracy_pct"]) if att and att["accuracy_pct"] else 0,
+            "active_days": int(days_row["active_days"]) if days_row else 0,
+            "learning_rate": learning_rate,
+            "first_practice": str(att["first_practice"]) if att and att.get("first_practice") else None,
+            "last_practice": str(att["last_practice"]) if att and att.get("last_practice") else None,
+            "recent_days": [{"date": str(r["day"]), "attempts": int(r["attempts"])} for r in recent] if recent else [],
+        })
+
     return err("Acción no válida", 400)

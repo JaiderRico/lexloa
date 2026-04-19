@@ -69,17 +69,23 @@ def srs():
         srs_row = db_fetchone("SELECT easiness, interval_days, repetitions FROM word_srs WHERE user_id = %s AND group_id = %s", (uid, group_id))
         if not srs_row: return err("SRS record not found", 500)
 
+        hard_word = db_fetchone("SELECT COUNT(*) AS hard FROM words WHERE group_id = %s AND is_hard = TRUE", (group_id,))
+        is_hard = hard_word and hard_word["hard"] > 0
+        difficulty_mod = 1.5 if is_hard else 1.0
+
         ef = float(srs_row["easiness"]); interval = int(srs_row["interval_days"]); reps = int(srs_row["repetitions"])
 
         if quality >= 3:
             if reps == 0: interval = 1
             elif reps == 1: interval = 6
-            else: interval = round(interval * ef)
+            else: interval = round(interval * ef * difficulty_mod)
             reps += 1
             ef = max(1.3, ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)))
         else:
             reps = 0; interval = 1; ef = max(1.3, ef - 0.2)
 
+        if is_hard:
+            interval = min(365, max(1, round(interval * 1.3)))
         interval = min(365, max(1, interval))
         next_review = str(today_col() + timedelta(days=interval))
         mastered = interval >= 21 and quality >= 4
@@ -88,7 +94,7 @@ def srs():
             "UPDATE word_srs SET easiness=%s, interval_days=%s, repetitions=%s, next_review=%s, last_quality=%s, mastered=%s WHERE user_id=%s AND group_id=%s",
             (ef, interval, reps, next_review, quality, mastered, uid, group_id),
         )
-        return ok({"easiness": round(ef, 2), "interval": interval, "repetitions": reps, "next_review": next_review, "mastered": mastered})
+        return ok({"easiness": round(ef, 2), "interval": interval, "repetitions": reps, "next_review": next_review, "mastered": mastered, "is_hard": is_hard})
 
     # POST ?action=mark_mastered
     if method == "POST" and action == "mark_mastered":

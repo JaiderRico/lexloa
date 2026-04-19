@@ -340,28 +340,35 @@ def practice():
 
     # GET ?action=streak
     if method == "GET" and action == "streak":
-        days = [str(r["created_at"]) for r in db_fetchall(
-            "SELECT created_at FROM word_groups WHERE user_id = %s GROUP BY created_at ORDER BY created_at DESC", (uid,)
-        )]
-        streak = 0
-        check = str(today_col())
-        for day in days:
-            if day == check:
-                streak += 1
-                check = str(date.fromisoformat(check) - timedelta(days=1))
-            elif day < check:
-                break
-        best = 0
-        current = 1
-        for i in range(1, len(days)):
-            diff = (date.fromisoformat(days[i - 1]) - date.fromisoformat(days[i])).days
-            if diff == 1:
-                current += 1
-                best = max(best, current)
+        rows = db_fetchall(
+            """SELECT DISTINCT DATE(created_at) as practice_date 
+               FROM practice_log WHERE user_id = %s ORDER BY practice_date DESC""",
+            (uid,),
+        )
+        if not rows:
+            return ok({"streak": 0, "best": 0})
+
+        days = [r["practice_date"] for r in rows]
+        today = today_col()
+        current_streak = 0
+        best_streak = 0
+        if (today - days[0]).days <= 1:
+            temp = 1
+            for i in range(len(days) - 1):
+                if (days[i] - days[i + 1]).days == 1:
+                    temp += 1
+                else:
+                    break
+            current_streak = temp
+        temp_best = 1
+        for i in range(len(days) - 1):
+            if (days[i] - days[i + 1]).days == 1:
+                temp_best += 1
             else:
-                current = 1
-        best = max(best, streak)
-        return ok({"streak": streak, "best": best})
+                best_streak = max(best_streak, temp_best)
+                temp_best = 1
+        best_streak = max(best_streak, temp_best)
+        return ok({"streak": current_streak, "best": best_streak})
 
     # GET ?action=word_accuracy
     if method == "GET" and action == "word_accuracy":
